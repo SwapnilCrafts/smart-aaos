@@ -2,6 +2,7 @@ package com.swapnil.smart.aaos
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.support.v4.media.MediaBrowserCompat
@@ -74,7 +75,60 @@ class SmartMusicService : MediaBrowserServiceCompat() {
 
         override fun onSkipToQueueItem(queueId: Long) {}
         override fun onCustomAction(action: String?, extras: Bundle?) {}
-        override fun onPlayFromSearch(query: String?, extras: Bundle?) {}
+        override fun onPlayFromSearch(query: String?, extras: Bundle?) {
+            android.util.Log.d("SmartAAOS", "onPlayFromSearch called with query: $query")
+
+            if (query.isNullOrEmpty()) {
+                android.util.Log.d("SmartAAOS", "Empty query — playing first song")
+                playSong(0)
+                return
+            }
+
+            val songIndex = findSongByQuery(query)
+            android.util.Log.d("SmartAAOS", "Found song at index: $songIndex")
+
+            if (songIndex != -1) {
+                currentIndex = songIndex
+                playSong(currentIndex)
+            } else {
+                android.util.Log.d("SmartAAOS", "No match — playing first song")
+                playSong(0)
+            }
+        }
+    }
+    // ✅ Smart search — matches title, artist or album
+    private fun findSongByQuery(query: String): Int {
+        val lowerQuery = query.lowercase().trim()
+
+        android.util.Log.d("SmartAAOS", "Searching for: $lowerQuery")
+        android.util.Log.d("SmartAAOS", "Available songs: ${MusicData.songs.map { it.title }}")
+
+        // First try exact title match
+        var index = MusicData.songs.indexOfFirst {
+            it.title.lowercase() == lowerQuery
+        }
+        if (index != -1) return index
+
+        // Then try title contains
+        index = MusicData.songs.indexOfFirst {
+            it.title.lowercase().contains(lowerQuery)
+        }
+        if (index != -1) return index
+
+        // Then try artist match
+        index = MusicData.songs.indexOfFirst {
+            it.artist.lowercase().contains(lowerQuery)
+        }
+        if (index != -1) return index
+
+        // Then try album match
+        index = MusicData.songs.indexOfFirst {
+            it.album.lowercase().contains(lowerQuery)
+        }
+        if (index != -1) return index
+
+        // No match found
+        return -1
     }
 
     override fun onCreate() {
@@ -93,7 +147,7 @@ class SmartMusicService : MediaBrowserServiceCompat() {
                         }
                     }
                     Player.STATE_ENDED -> {
-                        // Auto play next song
+
                         onSkipToNext()
                     }
                     else -> {}
@@ -117,7 +171,36 @@ class SmartMusicService : MediaBrowserServiceCompat() {
         updateMetadata(currentIndex)
         updatePlaybackState(PlaybackStateCompat.STATE_NONE)
     }
-    private var progressTimer: java.util.Timer? = null
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        android.util.Log.d("SmartAAOS", "onStartCommand called action: ${intent?.action}")
+
+        if (intent?.action == "android.media.action.MEDIA_PLAY_FROM_SEARCH") {
+            val query = intent.getStringExtra("query")
+            android.util.Log.d("SmartAAOS", "Voice query received: $query")
+
+            if (!query.isNullOrEmpty()) {
+                val songIndex = findSongByQuery(query)
+                android.util.Log.d("SmartAAOS", "Song index found: $songIndex")
+
+                if (songIndex != -1) {
+                    currentIndex = songIndex
+                    playSong(currentIndex)
+
+                    // ✅ Static callback instead of broadcast
+                    android.util.Log.d("SmartAAOS", "Calling navigation callback")
+                    val song = MusicData.songs[songIndex]
+                    handler.post {
+                        NavigationCallback.onPlaySong?.invoke(song)
+                    }
+
+                } else {
+                    playSong(0)
+                }
+            }
+        }
+
+        return super.onStartCommand(intent, flags, startId)
+    }
     // ✅ Core function — loads and plays a song
     private fun playSong(index: Int) {
         val song = MusicData.songs[index]

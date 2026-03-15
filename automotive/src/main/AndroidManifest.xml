@@ -4,7 +4,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.INTERNET" />
-
+    <permission
+        android:name="com.swapnil.smart.aaos.PLAY_SONG"
+        android:protectionLevel="signature" />
     <uses-feature
         android:name="android.hardware.type.automotive"
         android:required="true" />
@@ -58,6 +60,15 @@
             <intent-filter>
                 <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
+            <!-- ✅ Register for voice actions -->
+            <intent-filter>
+                <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <!-- ✅ Tell Google Assistant this is a music app -->
+            <meta-data
+                android:name="android.media.browse.MediaBrowserService.VERSION"
+                android:value="1" />
         </service>
 
     </application>

@@ -44,16 +44,29 @@ class PlayerScreen(
 
                     mediaController?.registerCallback(
                         object : MediaControllerCompat.Callback() {
-
-                            // ✅ Called every second by our timer
                             override fun onPlaybackStateChanged(
                                 state: PlaybackStateCompat?
                             ) {
                                 isPlaying = state?.state ==
                                         PlaybackStateCompat.STATE_PLAYING
-                                // ✅ Read current position
                                 currentPositionMs = state?.position ?: 0L
                                 invalidate()
+                            }
+
+                            // ✅ Update UI when voice command changes song
+                            override fun onMetadataChanged(
+                                metadata: android.support.v4.media.MediaMetadataCompat?
+                            ) {
+                                val newId = metadata?.getString(
+                                    android.support.v4.media.MediaMetadataCompat
+                                        .METADATA_KEY_MEDIA_ID
+                                )
+                                val newSong = MusicData.songs
+                                    .firstOrNull { it.id == newId }
+                                if (newSong != null) {
+                                    song = newSong
+                                    invalidate()
+                                }
                             }
                         }
                     )

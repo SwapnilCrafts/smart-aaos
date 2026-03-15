@@ -1,5 +1,4 @@
 package com.swapnil.smart.aaos
-
 import androidx.car.app.CarAppService
 import androidx.car.app.Session
 import androidx.car.app.validation.HostValidator
