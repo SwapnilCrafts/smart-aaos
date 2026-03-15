@@ -54,6 +54,15 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
 
         val listBuilder = ItemList.Builder()
 
+        listBuilder.addItem(
+            Row.Builder()
+                .setTitle("🚗 Vehicle Dashboard")
+                .addText("Speed • RPM • Fuel • Gear")
+                .setOnClickListener {
+                    screenManager.push(DashboardScreen(carContext))
+                }
+                .build()
+        )
         MusicData.songs.forEachIndexed { index, song ->
             val isSelected = song.id == selectedSongId
             val placeholder = AlbumArtLoader.generatePlaceholder(
@@ -64,20 +73,6 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
             val icon = CarIcon.Builder(
                 IconCompat.createWithBitmap(placeholder)
             ).build()
-
-            /*val icon = CarIcon.Builder(
-                IconCompat.createWithResource(
-                    carContext,
-                    if (isSelected)
-                        android.R.drawable.ic_media_pause
-                    else
-                        android.R.drawable.ic_media_play
-                )
-            ).setTint(
-                if (isSelected) CarColor.GREEN
-                else if (isCarMoving) CarColor.DEFAULT  // ✅ Grey when moving
-                else CarColor.BLUE
-            ).build()*/
 
             val rowBuilder = Row.Builder()
                 .setTitle(song.title)
