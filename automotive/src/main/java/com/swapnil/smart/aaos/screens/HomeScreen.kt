@@ -1,9 +1,5 @@
 package com.swapnil.smart.aaos.screens
 
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
 import androidx.car.app.model.Action
@@ -14,29 +10,19 @@ import androidx.car.app.model.ItemList
 import androidx.car.app.model.ListTemplate
 import androidx.car.app.model.Row
 import androidx.car.app.model.Template
-import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.IconCompat
+import com.swapnil.smart.aaos.AlbumArtLoader
 import com.swapnil.smart.aaos.MusicData
 import com.swapnil.smart.aaos.NavigationCallback
+import com.swapnil.smart.aaos.VehicleSpeedManager
 
 class HomeScreen(carContext: CarContext) : Screen(carContext) {
 
     private var selectedSongId: String? = null
-    private var isLoading = false
+    private var isCarMoving = false
 
-    private val voiceReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            val songId = intent?.getStringExtra("song_id") ?: return
-            val song = MusicData.songs.firstOrNull { it.id == songId } ?: return
-
-            // ✅ Navigate to PlayerScreen automatically
-            selectedSongId = songId
-            invalidate()
-            screenManager.push(PlayerScreen(carContext, song))
-        }
-    }
     init {
-        // ✅ Static callback — no broadcast needed
+        // ✅ Voice navigation callback
         NavigationCallback.onPlaySong = { song ->
             android.util.Log.d("SmartAAOS", "Navigating to: ${song.title}")
             selectedSongId = song.id
@@ -45,15 +31,41 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
                 screenManager.push(PlayerScreen(carContext, song))
             }
         }
+
+        // ✅ Speed lock — update UI when speed changes
+        VehicleSpeedManager.init(carContext) { speedKmh ->
+            val wasMoving = isCarMoving
+            isCarMoving = speedKmh > 2f
+
+            // Only refresh if state changed
+            if (wasMoving != isCarMoving) {
+                android.util.Log.d("SmartAAOS",
+                    if (isCarMoving) "🚗 Car moving — locking UI"
+                    else "🅿️ Car parked — unlocking UI"
+                )
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    invalidate()
+                }
+            }
+        }
     }
+
     override fun onGetTemplate(): Template {
 
         val listBuilder = ItemList.Builder()
 
         MusicData.songs.forEachIndexed { index, song ->
             val isSelected = song.id == selectedSongId
+            val placeholder = AlbumArtLoader.generatePlaceholder(
+                song.title,
+                AlbumArtLoader.getColorForSong(index)
+            )
 
             val icon = CarIcon.Builder(
+                IconCompat.createWithBitmap(placeholder)
+            ).build()
+
+            /*val icon = CarIcon.Builder(
                 IconCompat.createWithResource(
                     carContext,
                     if (isSelected)
@@ -63,49 +75,54 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
                 )
             ).setTint(
                 if (isSelected) CarColor.GREEN
+                else if (isCarMoving) CarColor.DEFAULT  // ✅ Grey when moving
                 else CarColor.BLUE
-            ).build()
+            ).build()*/
 
-            listBuilder.addItem(
-                Row.Builder()
-                    .setTitle(song.title)
-                    .addText("${song.artist}  •  ${song.album}")
-                    .addText("Track ${index + 1}  •  ${formatDuration(song.durationMs)}")
-                    .setImage(icon)
-                    .setOnClickListener {
-                        selectedSongId = song.id
-                        isLoading = false
-                        invalidate()
-                        screenManager.push(
-                            PlayerScreen(carContext, song)
-                        )
-                    }
-                    .build()
-            )
+            val rowBuilder = Row.Builder()
+                .setTitle(song.title)
+                .addText("${song.artist}  •  ${song.album}")
+                .addText("Track ${index + 1}  •  ${formatDuration(song.durationMs)}")
+                .setImage(icon)
+
+            // ✅ Only allow clicks when parked
+            if (!isCarMoving) {
+                rowBuilder.setOnClickListener {
+                    selectedSongId = song.id
+                    invalidate()
+                    screenManager.push(PlayerScreen(carContext, song))
+                }
+            }
+
+            listBuilder.addItem(rowBuilder.build())
         }
 
         return ListTemplate.Builder()
-            .setTitle("🎵 Smart AAOS")
+            .setTitle(
+                // ✅ Show driving status in title
+                if (isCarMoving) "🚗 Smart AAOS — Driving"
+                else "🅿️ Smart AAOS — Parked"
+            )
             .setHeaderAction(Action.APP_ICON)
             .setActionStrip(
                 ActionStrip.Builder()
                     .addAction(
                         Action.Builder()
-                            .setTitle("🎤 Jai Ho")
+                            .setTitle(
+                                if (isCarMoving) "🅿️ Park"
+                                else "🚗 Drive"
+                            )
                             .setOnClickListener {
-                                val index = MusicData.songs.indexOfFirst {
-                                    it.title.lowercase().contains("Jai Ho")
+                                if (isCarMoving) {
+                                    // Switch to parked
+                                    VehicleSpeedManager.simulateSpeed(0f)
+                                    isCarMoving = false
+                                } else {
+                                    // Switch to driving
+                                    VehicleSpeedManager.simulateSpeed(60f)
+                                    isCarMoving = true
                                 }
-                                if (index != -1) {
-                                    selectedSongId = MusicData.songs[index].id
-                                    invalidate()
-                                    screenManager.push(
-                                        PlayerScreen(
-                                            carContext,
-                                            MusicData.songs[index]
-                                        )
-                                    )
-                                }
+                                invalidate()
                             }
                             .build()
                     )

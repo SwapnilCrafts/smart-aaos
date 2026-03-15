@@ -6,7 +6,8 @@ data class Song(
     val artist: String,
     val album: String,
     val durationMs: Long,
-    val url: String
+    val url: String,
+    val artUrl: String = ""  // ✅ Album art URL
 )
 
 object MusicData {
@@ -17,7 +18,8 @@ object MusicData {
             artist = "Arijit Singh",
             album = "Brahmastra",
             durationMs = 268000L,
-            url = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+            url = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+            artUrl = "https://picsum.photos/seed/kesariya/200/200"
         ),
         Song(
             id = "2",
@@ -25,7 +27,8 @@ object MusicData {
             artist = "Arijit Singh",
             album = "Aashiqui 2",
             durationMs = 250000L,
-            url = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3"
+            url = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3",
+            artUrl = "https://picsum.photos/seed/tumhiho/200/200"
         ),
         Song(
             id = "3",
@@ -33,7 +36,8 @@ object MusicData {
             artist = "Jubin Nautiyal",
             album = "Shershaah",
             durationMs = 232000L,
-            url = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3"
+            url = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3",
+            artUrl = "https://picsum.photos/seed/raataan/200/200"
         ),
         Song(
             id = "4",
@@ -41,7 +45,8 @@ object MusicData {
             artist = "A.R. Rahman",
             album = "Slumdog Millionaire",
             durationMs = 301000L,
-            url = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3"
+            url = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3",
+            artUrl = "https://picsum.photos/seed/jaiho/200/200"
         ),
         Song(
             id = "5",
@@ -49,7 +54,8 @@ object MusicData {
             artist = "Pritam",
             album = "ZNMD",
             durationMs = 273000L,
-            url = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3"
+            url = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3",
+            artUrl = "https://picsum.photos/seed/dildhadakne/200/200"
         )
     )
 }
