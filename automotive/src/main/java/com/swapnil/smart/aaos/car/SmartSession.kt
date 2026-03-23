@@ -1,4 +1,4 @@
-package com.swapnil.smart.aaos
+package com.swapnil.smart.aaos.car
 
 import android.app.SearchManager
 import android.content.ComponentName
@@ -7,7 +7,8 @@ import android.provider.MediaStore
 import android.support.v4.media.MediaBrowserCompat
 import android.support.v4.media.session.MediaControllerCompat
 import androidx.car.app.Session
-import com.swapnil.smart.aaos.screens.HomeScreen
+import com.swapnil.smart.aaos.media.SmartMusicService
+import com.swapnil.smart.aaos.ui.screens.HomeScreen
 
 class SmartSession : Session() {
 

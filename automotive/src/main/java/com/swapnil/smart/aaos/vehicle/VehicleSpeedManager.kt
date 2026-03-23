@@ -1,4 +1,4 @@
-package com.swapnil.smart.aaos
+package com.swapnil.smart.aaos.vehicle
 
 import android.car.Car
 import android.car.hardware.CarPropertyValue

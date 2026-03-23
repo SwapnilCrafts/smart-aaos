@@ -1,20 +1,26 @@
-package com.swapnil.smart.aaos
+package com.swapnil.smart.aaos.media
 
+import android.R
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.support.v4.media.MediaBrowserCompat
 import android.support.v4.media.MediaDescriptionCompat
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.media.MediaBrowserServiceCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import com.swapnil.smart.aaos.ui.NavigationCallback
 
 class SmartMusicService : MediaBrowserServiceCompat() {
 
@@ -76,22 +82,22 @@ class SmartMusicService : MediaBrowserServiceCompat() {
         override fun onSkipToQueueItem(queueId: Long) {}
         override fun onCustomAction(action: String?, extras: Bundle?) {}
         override fun onPlayFromSearch(query: String?, extras: Bundle?) {
-            android.util.Log.d("SmartAAOS", "onPlayFromSearch called with query: $query")
+            Log.d("SmartAAOS", "onPlayFromSearch called with query: $query")
 
             if (query.isNullOrEmpty()) {
-                android.util.Log.d("SmartAAOS", "Empty query — playing first song")
+                Log.d("SmartAAOS", "Empty query — playing first song")
                 playSong(0)
                 return
             }
 
             val songIndex = findSongByQuery(query)
-            android.util.Log.d("SmartAAOS", "Found song at index: $songIndex")
+            Log.d("SmartAAOS", "Found song at index: $songIndex")
 
             if (songIndex != -1) {
                 currentIndex = songIndex
                 playSong(currentIndex)
             } else {
-                android.util.Log.d("SmartAAOS", "No match — playing first song")
+                Log.d("SmartAAOS", "No match — playing first song")
                 playSong(0)
             }
         }
@@ -100,8 +106,8 @@ class SmartMusicService : MediaBrowserServiceCompat() {
     private fun findSongByQuery(query: String): Int {
         val lowerQuery = query.lowercase().trim()
 
-        android.util.Log.d("SmartAAOS", "Searching for: $lowerQuery")
-        android.util.Log.d("SmartAAOS", "Available songs: ${MusicData.songs.map { it.title }}")
+        Log.d("SmartAAOS", "Searching for: $lowerQuery")
+        Log.d("SmartAAOS", "Available songs: ${MusicData.songs.map { it.title }}")
 
         // First try exact title match
         var index = MusicData.songs.indexOfFirst {
@@ -172,22 +178,22 @@ class SmartMusicService : MediaBrowserServiceCompat() {
         updatePlaybackState(PlaybackStateCompat.STATE_NONE)
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        android.util.Log.d("SmartAAOS", "onStartCommand called action: ${intent?.action}")
+        Log.d("SmartAAOS", "onStartCommand called action: ${intent?.action}")
 
         if (intent?.action == "android.media.action.MEDIA_PLAY_FROM_SEARCH") {
             val query = intent.getStringExtra("query")
-            android.util.Log.d("SmartAAOS", "Voice query received: $query")
+            Log.d("SmartAAOS", "Voice query received: $query")
 
             if (!query.isNullOrEmpty()) {
                 val songIndex = findSongByQuery(query)
-                android.util.Log.d("SmartAAOS", "Song index found: $songIndex")
+                Log.d("SmartAAOS", "Song index found: $songIndex")
 
                 if (songIndex != -1) {
                     currentIndex = songIndex
                     playSong(currentIndex)
 
                     // ✅ Static callback instead of broadcast
-                    android.util.Log.d("SmartAAOS", "Calling navigation callback")
+                    Log.d("SmartAAOS", "Calling navigation callback")
                     val song = MusicData.songs[songIndex]
                     handler.post {
                         NavigationCallback.onPlaySong?.invoke(song)
@@ -218,7 +224,7 @@ class SmartMusicService : MediaBrowserServiceCompat() {
         startProgressTimer()
     }
 
-    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val handler = Handler(Looper.getMainLooper())
     private val progressRunnable = object : Runnable {
         override fun run() {
             // ✅ This runs on main thread — ExoPlayer is happy
@@ -310,7 +316,7 @@ class SmartMusicService : MediaBrowserServiceCompat() {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(song.title)
             .setContentText(song.artist)
-            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setSmallIcon(R.drawable.ic_media_play)
             .setOngoing(true)
             .build()
 
@@ -319,7 +325,7 @@ class SmartMusicService : MediaBrowserServiceCompat() {
             startForeground(
                 NOTIFICATION_ID,
                 notification,
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)

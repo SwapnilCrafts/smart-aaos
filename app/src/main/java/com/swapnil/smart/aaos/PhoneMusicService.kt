@@ -72,12 +72,52 @@ class PhoneMusicService : MediaBrowserServiceCompat() {
         override fun onSkipToQueueItem(queueId: Long) {}
         override fun onCustomAction(action: String?, extras: Bundle?) {}
         override fun onPlayFromSearch(query: String?, extras: Bundle?) {
-            val songIndex = MusicData.songs.indexOfFirst {
-                it.title.lowercase().contains(query?.lowercase() ?: "")
+            android.util.Log.d("SmartAAOS", "DHU Voice query: $query")
+
+            if (query.isNullOrEmpty()) {
+                // ✅ Empty query — play first song
+                android.util.Log.d("SmartAAOS", "Empty query — playing first song")
+                playSong(0)
+                return
             }
-            if (songIndex != -1) {
-                currentIndex = songIndex
+
+            val lowerQuery = query.lowercase().trim()
+
+            // ✅ Search by title first
+            var index = MusicData.songs.indexOfFirst {
+                it.title.lowercase() == lowerQuery
+            }
+
+            // ✅ Then title contains
+            if (index == -1) {
+                index = MusicData.songs.indexOfFirst {
+                    it.title.lowercase().contains(lowerQuery)
+                }
+            }
+
+            // ✅ Then artist
+            if (index == -1) {
+                index = MusicData.songs.indexOfFirst {
+                    it.artist.lowercase().contains(lowerQuery)
+                }
+            }
+
+            // ✅ Then album
+            if (index == -1) {
+                index = MusicData.songs.indexOfFirst {
+                    it.album.lowercase().contains(lowerQuery)
+                }
+            }
+
+            android.util.Log.d("SmartAAOS", "Found song at index: $index")
+
+            if (index != -1) {
+                currentIndex = index
                 playSong(currentIndex)
+            } else {
+                // ✅ No match — play first song
+                android.util.Log.d("SmartAAOS", "No match — playing first song")
+                playSong(0)
             }
         }
     }

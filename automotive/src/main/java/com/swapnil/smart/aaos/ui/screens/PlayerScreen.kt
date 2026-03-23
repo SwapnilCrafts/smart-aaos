@@ -1,8 +1,10 @@
-package com.swapnil.smart.aaos.screens
+package com.swapnil.smart.aaos.ui.screens
 
+import android.R
 import android.content.ComponentName
 import android.graphics.Bitmap
 import android.support.v4.media.MediaBrowserCompat
+import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaControllerCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import androidx.car.app.CarContext
@@ -16,11 +18,11 @@ import androidx.car.app.model.PaneTemplate
 import androidx.car.app.model.Row
 import androidx.car.app.model.Template
 import androidx.core.graphics.drawable.IconCompat
-import com.swapnil.smart.aaos.AlbumArtLoader
-import com.swapnil.smart.aaos.MusicData
-import com.swapnil.smart.aaos.SmartMusicService
-import com.swapnil.smart.aaos.Song
-import com.swapnil.smart.aaos.VehicleSpeedManager
+import com.swapnil.smart.aaos.utils.AlbumArtLoader
+import com.swapnil.smart.aaos.media.MusicData
+import com.swapnil.smart.aaos.media.SmartMusicService
+import com.swapnil.smart.aaos.media.Song
+import com.swapnil.smart.aaos.vehicle.VehicleSpeedManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -65,10 +67,10 @@ class PlayerScreen(
                             }
 
                             override fun onMetadataChanged(
-                                metadata: android.support.v4.media.MediaMetadataCompat?
+                                metadata: MediaMetadataCompat?
                             ) {
                                 val newId = metadata?.getString(
-                                    android.support.v4.media.MediaMetadataCompat
+                                    MediaMetadataCompat
                                         .METADATA_KEY_MEDIA_ID
                                 )
                                 val newSong = MusicData.songs
@@ -123,22 +125,22 @@ class PlayerScreen(
         } ?: CarIcon.Builder(
             IconCompat.createWithResource(
                 carContext,
-                android.R.drawable.ic_media_play
+                R.drawable.ic_media_play
             )
         ).setTint(CarColor.BLUE).build()
 
         val playPauseIcon = CarIcon.Builder(
             IconCompat.createWithResource(
                 carContext,
-                if (isPlaying) android.R.drawable.ic_media_pause
-                else android.R.drawable.ic_media_play
+                if (isPlaying) R.drawable.ic_media_pause
+                else R.drawable.ic_media_play
             )
         ).setTint(CarColor.GREEN).build()
 
         val nextIcon = CarIcon.Builder(
             IconCompat.createWithResource(
                 carContext,
-                android.R.drawable.ic_media_next
+                R.drawable.ic_media_next
             )
         ).setTint(CarColor.BLUE).build()
 

@@ -5,9 +5,7 @@ plugins {
 
 android {
     namespace = "com.swapnil.smart.aaos"
-    compileSdk {
-        version = release(36)
-    }
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.swapnil.smart.aaos"
@@ -34,6 +32,9 @@ android {
     }
     kotlinOptions {
         jvmTarget = "11"
+    }
+    buildFeatures {
+        aidl = true
     }
     useLibrary("android.car")
 }

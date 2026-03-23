@@ -56,9 +56,15 @@
                 android:value=".SmartCarAppService" />
 
         </activity>
-
         <service
-            android:name=".SmartCarAppService"
+            android:name=".vehicle.VehicleDataService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.swapnil.smart.aaos.IVehicleDataService" />
+            </intent-filter>
+        </service>
+        <service
+            android:name=".car.SmartCarAppService"
             android:exported="true">
             <intent-filter>
                 <action android:name="androidx.car.app.CarAppService" />
@@ -67,7 +73,7 @@
         </service>
 
         <service
-            android:name=".SmartMusicService"
+            android:name=".media.SmartMusicService"
             android:exported="true"
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>

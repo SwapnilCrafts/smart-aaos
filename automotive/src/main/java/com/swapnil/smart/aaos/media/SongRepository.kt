@@ -1,4 +1,4 @@
-package com.swapnil.smart.aaos
+package com.swapnil.smart.aaos.media
 
 import android.content.Context
 
