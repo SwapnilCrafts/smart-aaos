@@ -5,126 +5,113 @@ import android.os.Looper
 import android.util.Log
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
-import androidx.car.app.model.Action
-import androidx.car.app.model.ActionStrip
-import androidx.car.app.model.CarIcon
-import androidx.car.app.model.ItemList
-import androidx.car.app.model.ListTemplate
-import androidx.car.app.model.Row
-import androidx.car.app.model.Template
+import androidx.car.app.model.*
 import androidx.core.graphics.drawable.IconCompat
-import com.swapnil.smart.aaos.utils.AlbumArtLoader
 import com.swapnil.smart.aaos.media.MusicData
 import com.swapnil.smart.aaos.ui.NavigationCallback
-import com.swapnil.smart.aaos.vehicle.VehicleSpeedManager
+import com.swapnil.smart.aaos.utils.AlbumArtLoader
+import com.swapnil.smart.aaos.vehicle.VehicleRepository
 
 class HomeScreen(carContext: CarContext) : Screen(carContext) {
 
     private var selectedSongId: String? = null
-    private var isCarMoving = false
+    private var isCarMoving = false // Read from VehicleDataService
 
-    init {
-        // ✅ Voice navigation callback
-        NavigationCallback.onPlaySong = { song ->
-            Log.d("SmartAAOS", "Navigating to: ${song.title}")
-            selectedSongId = song.id
-            invalidate()
-            Handler(Looper.getMainLooper()).post {
-                screenManager.push(PlayerScreen(carContext, song))
-            }
-        }
+    private val handler = Handler(Looper.getMainLooper())
 
-        // ✅ Speed lock — update UI when speed changes
-        VehicleSpeedManager.init(carContext) { speedKmh ->
-            val wasMoving = isCarMoving
-            isCarMoving = speedKmh > 2f
-
-            // Only refresh if state changed
-            if (wasMoving != isCarMoving) {
-                Log.d("SmartAAOS",
-                    if (isCarMoving) "🚗 Car moving — locking UI"
-                    else "🅿️ Car parked — unlocking UI"
-                )
-                Handler(Looper.getMainLooper()).post {
-                    invalidate()
-                }
-            }
+    private val refreshRunnable = object : Runnable {
+        override fun run() {
+            updateCarMovementState()
+            handler.postDelayed(this, 1000L) // Refresh every second
         }
     }
 
-    override fun onGetTemplate(): Template {
 
+    init {
+        // Connect to AIDL service
+        try {
+            VehicleRepository.connect(carContext)
+        } catch (e: Exception) {
+            Log.e("SmartAAOS", "Bind failed: ${e.message}")
+        }
+
+        // Voice navigation callback
+        NavigationCallback.onPlaySong = { song ->
+            selectedSongId = song.id
+            invalidate()
+            handler.post { screenManager.push(PlayerScreen(carContext, song, ::updateCarMovementState)) }
+        }
+        handler.post(refreshRunnable)
+    }
+
+    private fun updateCarMovementState() {
+        try {
+            val speed = VehicleRepository.getSpeed()
+            val wasMoving = isCarMoving
+            isCarMoving = speed > 2f
+
+            if (wasMoving != isCarMoving) {
+                Log.d("SmartAAOS", if (isCarMoving) "🚗 Driving" else "🅿️ Parked")
+                invalidate()
+            }
+        } catch (_: Exception) {}
+    }
+
+    override fun onGetTemplate(): Template {
         val listBuilder = ItemList.Builder()
 
-        listBuilder.addItem(
-            Row.Builder()
-                .setTitle("🚗 Vehicle Dashboard")
-                .addText("Speed • RPM • Fuel • Gear")
-                .setOnClickListener {
-                    screenManager.push(DashboardScreen(carContext))
-                }
-                .build()
-        )
-        MusicData.songs.forEachIndexed { index, song ->
-            val isSelected = song.id == selectedSongId
-            val placeholder = AlbumArtLoader.generatePlaceholder(
-                song.title,
-                AlbumArtLoader.getColorForSong(index)
-            )
+        // Dashboard row
+        val dashboardRow = Row.Builder()
+            .setTitle("🚗 Vehicle Dashboard")
+            .addText("Speed • RPM • Fuel • Gear")
+        if (!isCarMoving) {
+            dashboardRow.setOnClickListener {
+                screenManager.push(DashboardScreen(carContext))
+            }
+        }
+        listBuilder.addItem(dashboardRow.build())
 
-            val icon = CarIcon.Builder(
-                IconCompat.createWithBitmap(placeholder)
-            ).build()
+        // Music rows
+        MusicData.songs.forEachIndexed { index, song ->
+            val placeholder = AlbumArtLoader.generatePlaceholder(song.title, AlbumArtLoader.getColorForSong(index))
+            val icon = CarIcon.Builder(IconCompat.createWithBitmap(placeholder)).build()
 
             val rowBuilder = Row.Builder()
                 .setTitle(song.title)
-                .addText("${song.artist}  •  ${song.album}")
-                .addText("Track ${index + 1}  •  ${formatDuration(song.durationMs)}")
+                .addText("${song.artist} • ${song.album}")
+                .addText("Track ${index + 1} • ${formatDuration(song.durationMs)}")
                 .setImage(icon)
 
-            // ✅ Only allow clicks when parked
             if (!isCarMoving) {
                 rowBuilder.setOnClickListener {
                     selectedSongId = song.id
                     invalidate()
-                    screenManager.push(PlayerScreen(carContext, song))
+                    screenManager.push(PlayerScreen(carContext, song, ::updateCarMovementState))
                 }
             }
 
             listBuilder.addItem(rowBuilder.build())
         }
 
+        // Drive/Park toggle
+        val action = Action.Builder()
+            .setTitle(if (isCarMoving) "🅿️ Park" else "🚗 Drive")
+            .setOnClickListener {
+                try {
+                    if (isCarMoving) {
+                        VehicleRepository.simulateParked()
+                    } else {
+                        VehicleRepository.simulateDriving()
+                    }
+                } catch (_: Exception) {}
+                updateCarMovementState()
+            }
+            .build()
+
         return ListTemplate.Builder()
-            .setTitle(
-                // ✅ Show driving status in title
-                if (isCarMoving) "🚗 Smart AAOS — Driving"
-                else "🅿️ Smart AAOS — Parked"
-            )
+            .setTitle(if (isCarMoving) "🚗 Smart AAOS — Driving" else "🅿️ Smart AAOS — Parked")
             .setHeaderAction(Action.APP_ICON)
-            .setActionStrip(
-                ActionStrip.Builder()
-                    .addAction(
-                        Action.Builder()
-                            .setTitle(
-                                if (isCarMoving) "🅿️ Park"
-                                else "🚗 Drive"
-                            )
-                            .setOnClickListener {
-                                if (isCarMoving) {
-                                    // Switch to parked
-                                    VehicleSpeedManager.simulateSpeed(0f)
-                                    isCarMoving = false
-                                } else {
-                                    // Switch to driving
-                                    VehicleSpeedManager.simulateSpeed(60f)
-                                    isCarMoving = true
-                                }
-                                invalidate()
-                            }
-                            .build()
-                    )
-                    .build()
-            )
+            .setActionStrip(ActionStrip.Builder().addAction(action).build())
             .setSingleList(listBuilder.build())
             .build()
     }

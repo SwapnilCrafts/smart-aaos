@@ -3,7 +3,6 @@ package com.swapnil.smart.aaos.media
 import android.content.Context
 
 object SongRepository {
-
     private var _songs: List<Song> = emptyList()
 
     val songs: List<Song>

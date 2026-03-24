@@ -4,6 +4,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
     <permission
         android:name="com.swapnil.smart.aaos.PLAY_SONG"
         android:protectionLevel="signature" />
@@ -14,13 +15,7 @@
     <uses-feature
         android:name="android.software.car.templates_host"
         android:required="true" />
-    <uses-permission
-        android:name="android.car.permission.CAR_SPEED" />
-    <uses-permission
-        android:name="android.car.permission.CAR_SPEED" />
 
-    <uses-permission
-        android:name="android.car.permission.CAR_INFO" />
 
     <!-- Vehicle data permissions -->
     <uses-permission android:name="android.car.permission.CAR_SPEED" />
@@ -58,7 +53,8 @@
         </activity>
         <service
             android:name=".vehicle.VehicleDataService"
-            android:exported="true">
+            android:exported="true"
+            android:permission="com.swapnil.smart.aaos.PLAY_SONG">
             <intent-filter>
                 <action android:name="com.swapnil.smart.aaos.IVehicleDataService" />
             </intent-filter>
@@ -68,7 +64,7 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="androidx.car.app.CarAppService" />
-                <category android:name="androidx.car.app.category.POI" />
+                <category android:name="androidx.car.app.category.MEDIA" />
             </intent-filter>
         </service>
 

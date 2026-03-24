@@ -1,6 +1,5 @@
 package com.swapnil.smart.aaos.ui.screens
 
-import android.R
 import android.content.ComponentName
 import android.graphics.Bitmap
 import android.support.v4.media.MediaBrowserCompat
@@ -9,27 +8,21 @@ import android.support.v4.media.session.MediaControllerCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
-import androidx.car.app.model.Action
-import androidx.car.app.model.ActionStrip
-import androidx.car.app.model.CarColor
-import androidx.car.app.model.CarIcon
-import androidx.car.app.model.Pane
-import androidx.car.app.model.PaneTemplate
-import androidx.car.app.model.Row
-import androidx.car.app.model.Template
+import androidx.car.app.model.*
 import androidx.core.graphics.drawable.IconCompat
-import com.swapnil.smart.aaos.utils.AlbumArtLoader
 import com.swapnil.smart.aaos.media.MusicData
-import com.swapnil.smart.aaos.media.SmartMusicService
 import com.swapnil.smart.aaos.media.Song
-import com.swapnil.smart.aaos.vehicle.VehicleSpeedManager
+import com.swapnil.smart.aaos.media.SmartMusicService
+import com.swapnil.smart.aaos.utils.AlbumArtLoader
+import com.swapnil.smart.aaos.vehicle.VehicleRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class PlayerScreen(
     carContext: CarContext,
-    private var song: Song
+    private var song: Song,
+    private val updateCarMovement: () -> Unit
 ) : Screen(carContext) {
 
     private var isPlaying = false
@@ -39,50 +32,37 @@ class PlayerScreen(
     private var albumArtBitmap: Bitmap? = null
 
     init {
-        // ✅ Load album art
+
+        // Load album art
         loadAlbumArt()
 
+        // MediaBrowser setup
         mediaBrowser = MediaBrowserCompat(
             carContext,
             ComponentName(carContext, SmartMusicService::class.java),
             object : MediaBrowserCompat.ConnectionCallback() {
                 override fun onConnected() {
-                    mediaController = MediaControllerCompat(
-                        carContext,
-                        mediaBrowser!!.sessionToken
-                    )
-                    mediaController?.transportControls
-                        ?.playFromMediaId(song.id, null)
+                    mediaController = MediaControllerCompat(carContext, mediaBrowser!!.sessionToken)
+                    mediaController?.transportControls?.playFromMediaId(song.id, null)
                     isPlaying = true
 
-                    mediaController?.registerCallback(
-                        object : MediaControllerCompat.Callback() {
-                            override fun onPlaybackStateChanged(
-                                state: PlaybackStateCompat?
-                            ) {
-                                isPlaying = state?.state ==
-                                        PlaybackStateCompat.STATE_PLAYING
-                                currentPositionMs = state?.position ?: 0L
+                    mediaController?.registerCallback(object : MediaControllerCompat.Callback() {
+                        override fun onPlaybackStateChanged(state: PlaybackStateCompat?) {
+                            isPlaying = state?.state == PlaybackStateCompat.STATE_PLAYING
+                            currentPositionMs = state?.position ?: 0L
+                            invalidate()
+                        }
+
+                        override fun onMetadataChanged(metadata: MediaMetadataCompat?) {
+                            val newId = metadata?.getString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID)
+                            val newSong = MusicData.songs.firstOrNull { it.id == newId }
+                            if (newSong != null && newSong.id != song.id) {
+                                song = newSong
+                                loadAlbumArt()
                                 invalidate()
                             }
-
-                            override fun onMetadataChanged(
-                                metadata: MediaMetadataCompat?
-                            ) {
-                                val newId = metadata?.getString(
-                                    MediaMetadataCompat
-                                        .METADATA_KEY_MEDIA_ID
-                                )
-                                val newSong = MusicData.songs
-                                    .firstOrNull { it.id == newId }
-                                if (newSong != null && newSong.id != song.id) {
-                                    song = newSong
-                                    loadAlbumArt()
-                                    invalidate()
-                                }
-                            }
                         }
-                    )
+                    })
                     invalidate()
                 }
             },
@@ -91,68 +71,33 @@ class PlayerScreen(
         mediaBrowser?.connect()
     }
 
-    // ✅ Load album art asynchronously
     private fun loadAlbumArt() {
         val songIndex = MusicData.songs.indexOfFirst { it.id == song.id }
 
         CoroutineScope(Dispatchers.Main).launch {
-            // Try loading from URL first
-            val bitmap = if (song.artUrl.isNotEmpty()) {
-                AlbumArtLoader.loadBitmap(song.artUrl)
-            } else null
-
-            // Fall back to generated placeholder
-            albumArtBitmap = bitmap ?: AlbumArtLoader.generatePlaceholder(
-                song.title,
-                AlbumArtLoader.getColorForSong(songIndex)
-            )
+            val bitmap = if (song.artUrl.isNotEmpty()) AlbumArtLoader.loadBitmap(song.artUrl) else null
+            albumArtBitmap = bitmap ?: AlbumArtLoader.generatePlaceholder(song.title, AlbumArtLoader.getColorForSong(songIndex))
             invalidate()
         }
     }
 
     override fun onGetTemplate(): Template {
 
-        val songNumber = MusicData.songs.indexOfFirst {
-            it.id == song.id
-        } + 1
-
+        val songNumber = MusicData.songs.indexOfFirst { it.id == song.id } + 1
         val progressBar = buildProgressBar(currentPositionMs, song.durationMs)
         val progressText = buildProgressText(currentPositionMs, song.durationMs)
 
-        // ✅ Album art icon
-        val albumArtIcon = albumArtBitmap?.let { bitmap ->
-            CarIcon.Builder(IconCompat.createWithBitmap(bitmap)).build()
-        } ?: CarIcon.Builder(
-            IconCompat.createWithResource(
-                carContext,
-                R.drawable.ic_media_play
-            )
-        ).setTint(CarColor.BLUE).build()
+        val albumArtIcon = albumArtBitmap?.let { bitmap -> CarIcon.Builder(IconCompat.createWithBitmap(bitmap)).build() }
+            ?: CarIcon.Builder(IconCompat.createWithResource(carContext, android.R.drawable.ic_media_play)).setTint(CarColor.BLUE).build()
 
-        val playPauseIcon = CarIcon.Builder(
-            IconCompat.createWithResource(
-                carContext,
-                if (isPlaying) R.drawable.ic_media_pause
-                else R.drawable.ic_media_play
-            )
-        ).setTint(CarColor.GREEN).build()
-
-        val nextIcon = CarIcon.Builder(
-            IconCompat.createWithResource(
-                carContext,
-                R.drawable.ic_media_next
-            )
-        ).setTint(CarColor.BLUE).build()
+        val playPauseIcon = CarIcon.Builder(IconCompat.createWithResource(carContext, if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)).setTint(CarColor.GREEN).build()
+        val nextIcon = CarIcon.Builder(IconCompat.createWithResource(carContext, android.R.drawable.ic_media_next)).setTint(CarColor.BLUE).build()
 
         val playPauseAction = Action.Builder()
             .setTitle(if (isPlaying) "Pause" else "Play")
             .setIcon(playPauseIcon)
             .setOnClickListener {
-                if (isPlaying) {
-                    mediaController?.transportControls?.pause()
-                } else {
-                    mediaController?.transportControls?.play()
-                }
+                if (isPlaying) mediaController?.transportControls?.pause() else mediaController?.transportControls?.play()
             }
             .build()
 
@@ -160,67 +105,57 @@ class PlayerScreen(
             .setTitle("Next")
             .setIcon(nextIcon)
             .setOnClickListener {
-                if (!VehicleSpeedManager.isMoving) {
-                    mediaController?.transportControls?.skipToNext()
-                    val currentIndex = MusicData.songs.indexOfFirst {
-                        it.id == song.id
-                    }
+                val speed = try {
+                    VehicleRepository.getSpeed()
+                } catch (_: Exception) { 0f }
+                if (speed <= 2f) { // Only allow next when parked
+                    val currentIndex = MusicData.songs.indexOfFirst { it.id == song.id }
                     val nextIndex = (currentIndex + 1) % MusicData.songs.size
                     song = MusicData.songs[nextIndex]
                     currentPositionMs = 0L
                     loadAlbumArt()
+                    mediaController?.transportControls?.playFromMediaId(song.id, null)
                     invalidate()
                 }
             }
             .build()
 
         val pane = Pane.Builder()
-            .addRow(
-                Row.Builder()
-                    .setTitle(song.title)
-                    .addText("${song.artist}  •  ${song.album}")
-                    .addText("$progressBar  $progressText  •  Track $songNumber of ${MusicData.songs.size}")
-                    // ✅ Album art shown here
-                    .setImage(albumArtIcon)
-                    .build()
+            .addRow(Row.Builder()
+                .setTitle(song.title)
+                .addText("${song.artist} • ${song.album}")
+                .addText("$progressBar  $progressText • Track $songNumber of ${MusicData.songs.size}")
+                .setImage(albumArtIcon)
+                .build()
             )
             .addAction(playPauseAction)
             .addAction(nextAction)
             .build()
 
+        // Drive/Park toggle from VehicleDataService
+        val driveParkAction = Action.Builder()
+            .setTitle(if (try { VehicleRepository.getSpeed()} catch (_: Exception) { 0f } > 2f) "🅿️ Park" else "🚗 Drive")
+            .setOnClickListener {
+                try {
+                    val speed = VehicleRepository.getSpeed()
+                    if (speed > 2f) VehicleRepository.simulateParked() else VehicleRepository.simulateDriving()
+                } catch (_: Exception) {}
+                updateCarMovement()
+            }
+            .build()
+
         return PaneTemplate.Builder(pane)
             .setTitle("Now Playing")
             .setHeaderAction(Action.BACK)
-            .setActionStrip(
-                ActionStrip.Builder()
-                    .addAction(
-                        Action.Builder()
-                            .setTitle(
-                                if (VehicleSpeedManager.isMoving) "🅿️ Park"
-                                else "🚗 Drive"
-                            )
-                            .setOnClickListener {
-                                if (VehicleSpeedManager.isMoving) {
-                                    VehicleSpeedManager.simulateSpeed(0f)
-                                } else {
-                                    VehicleSpeedManager.simulateSpeed(60f)
-                                }
-                                invalidate()
-                            }
-                            .build()
-                    )
-                    .build()
-            )
+            .setActionStrip(ActionStrip.Builder().addAction(driveParkAction).build())
             .build()
     }
 
     private fun buildProgressBar(positionMs: Long, durationMs: Long): String {
         if (durationMs <= 0) return "░░░░░░░░░░░░░░░"
-        val progress = positionMs.toFloat() / durationMs.toFloat()
         val totalBlocks = 15
-        val filledBlocks = (progress * totalBlocks).toInt()
-        val emptyBlocks = totalBlocks - filledBlocks
-        return "${"█".repeat(filledBlocks)}${"░".repeat(emptyBlocks)}"
+        val filled = (positionMs.toFloat() / durationMs.toFloat() * totalBlocks).toInt()
+        return "█".repeat(filled) + "░".repeat(totalBlocks - filled)
     }
 
     private fun buildProgressText(positionMs: Long, durationMs: Long): String {
@@ -228,9 +163,7 @@ class PlayerScreen(
     }
 
     private fun formatTime(ms: Long): String {
-        val totalSeconds = ms / 1000
-        val minutes = totalSeconds / 60
-        val seconds = totalSeconds % 60
-        return "%d:%02d".format(minutes, seconds)
+        val seconds = ms / 1000
+        return "%d:%02d".format(seconds / 60, seconds % 60)
     }
 }
