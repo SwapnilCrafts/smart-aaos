@@ -69,19 +69,62 @@ object VehicleRepository {
         return try { vehicleService?.getOdometer() ?: 0f } catch (e: Exception) { 0f }
     }
 
-    fun simulateDriving() {
+    fun simulateDriving1() {
         try {
             vehicleService?.simulateDriving(60f, 2000f, 70f)
         } catch (e: Exception) {
             Log.d(TAG, "Simulate driving error: ${e.message}")
         }
     }
+    fun simulateDriving() {
+        try {
+            vehicleService?.simulateDriving(
+                120f,   // 🚗 High speed → Overspeed
+                5500f,  // 🧠 High RPM → Engine fault
+                8f      // ⛽ Low fuel → Fuel fault
+            )
+        } catch (e: Exception) {
+            Log.d(TAG, "Simulate driving error: ${e.message}")
+        }
+    }
 
+    fun simulateNormalDriving() {
+        vehicleService?.simulateDriving(50f, 2000f, 60f)
+    }
+
+    fun simulateOverspeed() {
+        vehicleService?.simulateDriving(120f, 3000f, 60f)
+    }
+
+    fun simulateEngineFault() {
+        vehicleService?.simulateDriving(60f, 5500f, 60f)
+    }
+
+    fun simulateLowFuel() {
+        vehicleService?.simulateDriving(40f, 2000f, 8f)
+    }
+
+    fun simulateCriticalAll() {
+        vehicleService?.simulateDriving(140f, 6000f, 5f)
+    }
     fun simulateParked() {
         try {
             vehicleService?.simulateParked()
         } catch (e: Exception) {
             Log.d(TAG, "Simulate parked error: ${e.message}")
+        }
+    }
+    fun disconnect(context: Context) {
+        try {
+            if (isConnected || isBinding) {
+                context.unbindService(serviceConnection)
+                vehicleService = null
+                isConnected = false
+                isBinding = false
+                Log.d(TAG, "✅ Disconnected from VehicleDataService")
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Disconnect error: ${e.message}")
         }
     }
 }

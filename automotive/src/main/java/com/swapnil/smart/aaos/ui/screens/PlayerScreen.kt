@@ -2,6 +2,8 @@ package com.swapnil.smart.aaos.ui.screens
 
 import android.content.ComponentName
 import android.graphics.Bitmap
+import android.os.Handler
+import android.os.Looper
 import android.support.v4.media.MediaBrowserCompat
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaControllerCompat
@@ -13,7 +15,9 @@ import androidx.core.graphics.drawable.IconCompat
 import com.swapnil.smart.aaos.media.MusicData
 import com.swapnil.smart.aaos.media.Song
 import com.swapnil.smart.aaos.media.SmartMusicService
+import com.swapnil.smart.aaos.ui.NavigationCallback
 import com.swapnil.smart.aaos.utils.AlbumArtLoader
+import com.swapnil.smart.aaos.utils.AlertRepository
 import com.swapnil.smart.aaos.vehicle.VehicleRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -31,12 +35,19 @@ class PlayerScreen(
     private var mediaController: MediaControllerCompat? = null
     private var albumArtBitmap: Bitmap? = null
 
+    private val handler = Handler(Looper.getMainLooper())
+
+    private val refreshRunnable = object : Runnable {
+        override fun run() {
+            invalidate() // 🔥 real-time refresh
+            handler.postDelayed(this, 1000L)
+        }
+    }
+
     init {
-
-        // Load album art
         loadAlbumArt()
+        handler.post(refreshRunnable)
 
-        // MediaBrowser setup
         mediaBrowser = MediaBrowserCompat(
             carContext,
             ComponentName(carContext, SmartMusicService::class.java),
@@ -69,46 +80,89 @@ class PlayerScreen(
             null
         )
         mediaBrowser?.connect()
+
+        NavigationCallback.onPause = {
+            mediaController?.transportControls?.pause()
+        }
+
+        NavigationCallback.onNext = {
+            val speed = VehicleRepository.getSpeed()
+            if (speed <= 2f) {
+                mediaController?.transportControls?.skipToNext()
+            }
+        }
     }
 
     private fun loadAlbumArt() {
         val songIndex = MusicData.songs.indexOfFirst { it.id == song.id }
 
         CoroutineScope(Dispatchers.Main).launch {
-            val bitmap = if (song.artUrl.isNotEmpty()) AlbumArtLoader.loadBitmap(song.artUrl) else null
-            albumArtBitmap = bitmap ?: AlbumArtLoader.generatePlaceholder(song.title, AlbumArtLoader.getColorForSong(songIndex))
+            val bitmap = if (song.artUrl.isNotEmpty())
+                AlbumArtLoader.loadBitmap(song.artUrl)
+            else null
+
+            albumArtBitmap = bitmap ?: AlbumArtLoader.generatePlaceholder(
+                song.title,
+                AlbumArtLoader.getColorForSong(songIndex)
+            )
             invalidate()
         }
     }
 
     override fun onGetTemplate(): Template {
 
+        val paneBuilder = Pane.Builder()
+
+
         val songNumber = MusicData.songs.indexOfFirst { it.id == song.id } + 1
         val progressBar = buildProgressBar(currentPositionMs, song.durationMs)
         val progressText = buildProgressText(currentPositionMs, song.durationMs)
 
-        val albumArtIcon = albumArtBitmap?.let { bitmap -> CarIcon.Builder(IconCompat.createWithBitmap(bitmap)).build() }
-            ?: CarIcon.Builder(IconCompat.createWithResource(carContext, android.R.drawable.ic_media_play)).setTint(CarColor.BLUE).build()
+        val albumArtIcon = if (albumArtBitmap != null) {
+            CarIcon.Builder(IconCompat.createWithBitmap(albumArtBitmap!!)).build()
+        } else {
+            CarIcon.Builder(
+                IconCompat.createWithResource(carContext, android.R.drawable.ic_media_play)
+            ).build()
+        }
 
-        val playPauseIcon = CarIcon.Builder(IconCompat.createWithResource(carContext, if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)).setTint(CarColor.GREEN).build()
-        val nextIcon = CarIcon.Builder(IconCompat.createWithResource(carContext, android.R.drawable.ic_media_next)).setTint(CarColor.BLUE).build()
+        // 🚨 ALERT SYSTEM
+        AlertRepository.currentAlert?.let { alert ->
+            paneBuilder.addRow(
+                Row.Builder()
+                    .setTitle("🚨 ${alert.message}")
+                    .addText("Check vehicle status")
+                    .build()
+            )
+        }
 
+        // 🎵 SONG INFO
+        paneBuilder.addRow(
+            Row.Builder()
+                .setTitle(song.title)
+                .addText("${song.artist} • ${song.album}")
+                .addText("$progressBar  $progressText • Track $songNumber of ${MusicData.songs.size}")
+                .setImage(albumArtIcon)
+                .build()
+        )
+
+        // ▶️ PLAY / PAUSE
         val playPauseAction = Action.Builder()
             .setTitle(if (isPlaying) "Pause" else "Play")
-            .setIcon(playPauseIcon)
             .setOnClickListener {
-                if (isPlaying) mediaController?.transportControls?.pause() else mediaController?.transportControls?.play()
+                if (isPlaying)
+                    mediaController?.transportControls?.pause()
+                else
+                    mediaController?.transportControls?.play()
             }
             .build()
 
+        // ⏭ NEXT
         val nextAction = Action.Builder()
             .setTitle("Next")
-            .setIcon(nextIcon)
             .setOnClickListener {
-                val speed = try {
-                    VehicleRepository.getSpeed()
-                } catch (_: Exception) { 0f }
-                if (speed <= 2f) { // Only allow next when parked
+                val speed = VehicleRepository.getSpeed()
+                if (speed <= 2f) {
                     val currentIndex = MusicData.songs.indexOfFirst { it.id == song.id }
                     val nextIndex = (currentIndex + 1) % MusicData.songs.size
                     song = MusicData.songs[nextIndex]
@@ -120,25 +174,26 @@ class PlayerScreen(
             }
             .build()
 
-        val pane = Pane.Builder()
-            .addRow(Row.Builder()
-                .setTitle(song.title)
-                .addText("${song.artist} • ${song.album}")
-                .addText("$progressBar  $progressText • Track $songNumber of ${MusicData.songs.size}")
-                .setImage(albumArtIcon)
-                .build()
-            )
-            .addAction(playPauseAction)
-            .addAction(nextAction)
-            .build()
+        // 🔥 MAX 2 ACTIONS RULE
+        paneBuilder.addAction(playPauseAction)
+        paneBuilder.addAction(nextAction)
 
-        // Drive/Park toggle from VehicleDataService
+        val pane = paneBuilder.build()
+
+        // 🚗 DRIVE / PARK
         val driveParkAction = Action.Builder()
-            .setTitle(if (try { VehicleRepository.getSpeed()} catch (_: Exception) { 0f } > 2f) "🅿️ Park" else "🚗 Drive")
+            .setTitle(
+                if ((try { VehicleRepository.getSpeed() } catch (_: Exception) { 0f }) > 2f)
+                    "🅿️ Park"
+                else "🚗 Drive"
+            )
             .setOnClickListener {
                 try {
                     val speed = VehicleRepository.getSpeed()
-                    if (speed > 2f) VehicleRepository.simulateParked() else VehicleRepository.simulateDriving()
+                    if (speed > 2f)
+                        VehicleRepository.simulateParked()
+                    else
+                        VehicleRepository.simulateDriving()
                 } catch (_: Exception) {}
                 updateCarMovement()
             }
@@ -147,7 +202,11 @@ class PlayerScreen(
         return PaneTemplate.Builder(pane)
             .setTitle("Now Playing")
             .setHeaderAction(Action.BACK)
-            .setActionStrip(ActionStrip.Builder().addAction(driveParkAction).build())
+            .setActionStrip(
+                ActionStrip.Builder()
+                    .addAction(driveParkAction)
+                    .build()
+            )
             .build()
     }
 

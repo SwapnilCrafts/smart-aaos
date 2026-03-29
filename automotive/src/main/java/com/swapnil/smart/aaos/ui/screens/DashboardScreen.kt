@@ -5,6 +5,9 @@ import android.util.Log
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
 import androidx.car.app.model.*
+import com.swapnil.smart.aaos.utils.AlertRepository
+import com.swapnil.smart.aaos.utils.Severity
+import com.swapnil.smart.aaos.utils.VehicleAlert
 import com.swapnil.smart.aaos.vehicle.VehicleRepository
 
 class DashboardScreen(carContext: CarContext) : Screen(carContext) {
@@ -34,6 +37,17 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
 
         val listBuilder = ItemList.Builder()
 
+        AlertRepository.currentAlert?.let { alert ->
+            listBuilder.addItem(
+                Row.Builder()
+                    .setTitle("🚨 ${alert.message}")
+                    .addText("Tap to view details")
+                    .setOnClickListener {
+                        screenManager.push(DiagnosticsScreen(carContext))
+                    }
+                    .build()
+            )
+        }
         if (!VehicleRepository.isConnected) {
             // ✅ ONLY show simple rows (no loading state)
             listBuilder.addItem(
@@ -52,6 +66,26 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
             val engineOn = try { VehicleRepository.isEngineOn() ?: false } catch (e: Exception) { false }
             val odometer = try { VehicleRepository.getOdometer() ?: 0f } catch (e: Exception) { 0f }
 
+
+            listBuilder.addItem(
+                Row.Builder()
+                    .setTitle("🧪 Test Overspeed Alert")
+                    .setOnClickListener {
+                        AlertRepository.triggerManualAlert(
+                            VehicleAlert("Overspeed!", Severity.HIGH)
+                        )
+                    }
+                    .build()
+            )
+
+            listBuilder.addItem(
+                Row.Builder()
+                    .setTitle("🧪 Clear Alert")
+                    .setOnClickListener {
+                        AlertRepository.clearManualAlert()
+                    }
+                    .build()
+            )
             // Speed
             listBuilder.addItem(
                 Row.Builder()

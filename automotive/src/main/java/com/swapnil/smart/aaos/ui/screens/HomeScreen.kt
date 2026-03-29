@@ -10,6 +10,7 @@ import androidx.core.graphics.drawable.IconCompat
 import com.swapnil.smart.aaos.media.MusicData
 import com.swapnil.smart.aaos.ui.NavigationCallback
 import com.swapnil.smart.aaos.utils.AlbumArtLoader
+import com.swapnil.smart.aaos.utils.AlertRepository
 import com.swapnil.smart.aaos.vehicle.VehicleRepository
 
 class HomeScreen(carContext: CarContext) : Screen(carContext) {
@@ -29,17 +30,26 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
 
     init {
         // Connect to AIDL service
+
         try {
             VehicleRepository.connect(carContext)
+            AlertRepository.start()
         } catch (e: Exception) {
             Log.e("SmartAAOS", "Bind failed: ${e.message}")
         }
-
         // Voice navigation callback
         NavigationCallback.onPlaySong = { song ->
             selectedSongId = song.id
             invalidate()
             handler.post { screenManager.push(PlayerScreen(carContext, song, ::updateCarMovementState)) }
+        }
+        NavigationCallback.onOpenDashboard = {
+            if (!isCarMoving) {
+                screenManager.push(DashboardScreen(carContext))
+            }
+        }
+        AlertRepository.observe {
+            invalidate() // auto refresh UI when alert changes
         }
         handler.post(refreshRunnable)
     }
@@ -58,7 +68,20 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
     }
 
     override fun onGetTemplate(): Template {
+
         val listBuilder = ItemList.Builder()
+
+        AlertRepository.currentAlert?.let { alert ->
+            listBuilder.addItem(
+                Row.Builder()
+                    .setTitle("🚨 ${alert.message}")
+                    .addText("Tap to view details")
+                    .setOnClickListener {
+                        screenManager.push(DiagnosticsScreen(carContext))
+                    }
+                    .build()
+            )
+        }
 
         // Dashboard row
         val dashboardRow = Row.Builder()
@@ -69,6 +92,17 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
                 screenManager.push(DashboardScreen(carContext))
             }
         }
+
+        val diagnosticsRow = Row.Builder()
+            .setTitle("📊 Vehicle Diagnostics")
+            .addText("Engine • Battery • Alerts")
+
+//        if (!isCarMoving) {
+            diagnosticsRow.setOnClickListener {
+                screenManager.push(DiagnosticsScreen(carContext))
+            }
+       // }
+        listBuilder.addItem(diagnosticsRow.build())
         listBuilder.addItem(dashboardRow.build())
 
         // Music rows
