@@ -1,43 +1,32 @@
 package com.swapnil.smart.aaos.ui.screens
-import android.os.Handler
-import android.os.Looper
-import android.util.Log
+
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
 import androidx.car.app.model.*
-import com.swapnil.smart.aaos.utils.AlertRepository
-import com.swapnil.smart.aaos.utils.Severity
-import com.swapnil.smart.aaos.utils.VehicleAlert
-import com.swapnil.smart.aaos.vehicle.VehicleRepository
+import androidx.lifecycle.Observer
+import com.swapnil.smart.aaos.viewmodel.CarViewModelStore
+import com.swapnil.smart.aaos.viewmodel.VehicleViewModel
 
 class DashboardScreen(carContext: CarContext) : Screen(carContext) {
 
-    companion object {
-        private const val TAG = "SmartAAOS_AIDL"
-    }
-
-
-
-    private var isSimulating = false
-
-
-    // AIDL Service Connection
-
-    private val handler = Handler(Looper.getMainLooper())
+    // ✅ Get ViewModel from our custom store
+    private val viewModel = CarViewModelStore.get(VehicleViewModel::class.java)
 
     init {
-        handler.post(object : Runnable {
-            override fun run() {
-                invalidate()
-                handler.postDelayed(this, 1000L)
-            }
-        })
+        // ✅ Observe LiveData — invalidate screen when data changes
+        viewModel.speed.observeForever { invalidate() }
+        viewModel.rpm.observeForever { invalidate() }
+        viewModel.fuel.observeForever { invalidate() }
+        viewModel.gear.observeForever { invalidate() }
+        viewModel.isConnected.observeForever { invalidate() }
+        viewModel.currentAlert.observeForever { invalidate() }
     }
-    override fun onGetTemplate(): Template {
 
+    override fun onGetTemplate(): Template {
         val listBuilder = ItemList.Builder()
 
-        AlertRepository.currentAlert?.let { alert ->
+        // ✅ Read from ViewModel instead of direct repository calls
+        viewModel.currentAlert.value?.let { alert ->
             listBuilder.addItem(
                 Row.Builder()
                     .setTitle("🚨 ${alert.message}")
@@ -48,69 +37,40 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
                     .build()
             )
         }
-        if (!VehicleRepository.isConnected) {
-            // ✅ ONLY show simple rows (no loading state)
+
+        if (viewModel.isConnected.value != true) {
             listBuilder.addItem(
                 Row.Builder()
                     .setTitle("🔄 Connecting to Vehicle Service...")
                     .addText("Please wait")
                     .build()
             )
-
         } else {
-            // ✅ Safe AIDL calls
-            val speed = try { VehicleRepository.getSpeed() ?: 0f } catch (e: Exception) { 0f }
-            val rpm = try { VehicleRepository.getRpm() ?: 0f } catch (e: Exception) { 0f }
-            val fuel = try { VehicleRepository.getFuel() ?: 0f } catch (e: Exception) { 0f }
-            val gear = try { VehicleRepository.getGear() ?: "P" } catch (e: Exception) { "P" }
-            val engineOn = try { VehicleRepository.isEngineOn() ?: false } catch (e: Exception) { false }
-            val odometer = try { VehicleRepository.getOdometer() ?: 0f } catch (e: Exception) { 0f }
+            val speed   = viewModel.speed.value ?: 0f
+            val rpm     = viewModel.rpm.value ?: 0f
+            val fuel    = viewModel.fuel.value ?: 0f
+            val gear    = viewModel.gear.value ?: "P"
+            val engineOn = viewModel.engineOn.value ?: false
+            val odometer = viewModel.odometer.value ?: 0f
 
-
-            listBuilder.addItem(
-                Row.Builder()
-                    .setTitle("🧪 Test Overspeed Alert")
-                    .setOnClickListener {
-                        AlertRepository.triggerManualAlert(
-                            VehicleAlert("Overspeed!", Severity.HIGH)
-                        )
-                    }
-                    .build()
-            )
-
-            listBuilder.addItem(
-                Row.Builder()
-                    .setTitle("🧪 Clear Alert")
-                    .setOnClickListener {
-                        AlertRepository.clearManualAlert()
-                    }
-                    .build()
-            )
-            // Speed
             listBuilder.addItem(
                 Row.Builder()
                     .setTitle("🚗 Speed")
                     .addText("${speed.toInt()} km/h")
                     .build()
             )
-
-            // RPM
             listBuilder.addItem(
                 Row.Builder()
                     .setTitle("⚙️ RPM")
                     .addText("${rpm.toInt()} RPM")
                     .build()
             )
-
-            // Fuel
             listBuilder.addItem(
                 Row.Builder()
                     .setTitle("⛽ Fuel")
                     .addText("${fuel.toInt()}%")
                     .build()
             )
-
-            // Gear
             listBuilder.addItem(
                 Row.Builder()
                     .setTitle("🔧 Gear")
@@ -118,8 +78,6 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
                     .addText(if (engineOn) "Engine ON" else "Engine OFF")
                     .build()
             )
-
-            // Odometer
             listBuilder.addItem(
                 Row.Builder()
                     .setTitle("📍 Odometer")
@@ -130,7 +88,7 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
 
         return ListTemplate.Builder()
             .setTitle(
-                if (VehicleRepository.isConnected) "🚗 Dashboard — AIDL"
+                if (viewModel.isConnected.value == true) "🚗 Dashboard — MVVM"
                 else "🚗 Dashboard — Connecting..."
             )
             .setHeaderAction(Action.BACK)
@@ -139,17 +97,15 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
                     .addAction(
                         Action.Builder()
                             .setTitle(
-                                if (VehicleRepository.getSpeed() > 2f) "🅿️ Park"
+                                if ((viewModel.speed.value ?: 0f) > 2f) "🅿️ Park"
                                 else "🚗 Drive"
                             )
                             .setOnClickListener {
-                                val speed = VehicleRepository.getSpeed()
-                                if (speed > 2f) {
-                                    VehicleRepository.simulateParked()
+                                if ((viewModel.speed.value ?: 0f) > 2f) {
+                                    viewModel.simulateParked()
                                 } else {
-                                    VehicleRepository.simulateDriving()
+                                    viewModel.simulateDriving()
                                 }
-                                invalidate()
                             }
                             .build()
                     )
@@ -158,5 +114,4 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
             .setSingleList(listBuilder.build())
             .build()
     }
-
 }

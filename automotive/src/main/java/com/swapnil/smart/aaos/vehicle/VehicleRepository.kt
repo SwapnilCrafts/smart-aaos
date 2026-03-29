@@ -69,14 +69,14 @@ object VehicleRepository {
         return try { vehicleService?.getOdometer() ?: 0f } catch (e: Exception) { 0f }
     }
 
-    fun simulateDriving1() {
+    fun simulateDriving() {
         try {
             vehicleService?.simulateDriving(60f, 2000f, 70f)
         } catch (e: Exception) {
             Log.d(TAG, "Simulate driving error: ${e.message}")
         }
     }
-    fun simulateDriving() {
+    fun simulateDriving1() {
         try {
             vehicleService?.simulateDriving(
                 120f,   // 🚗 High speed → Overspeed
