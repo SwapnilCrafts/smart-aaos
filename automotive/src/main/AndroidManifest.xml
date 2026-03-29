@@ -75,16 +75,20 @@
             <intent-filter>
                 <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
-            <!-- ✅ Register for voice actions -->
             <intent-filter>
                 <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
-            <!-- ✅ Tell Google Assistant this is a music app -->
             <meta-data
                 android:name="android.media.browse.MediaBrowserService.VERSION"
                 android:value="1" />
         </service>
+        <receiver android:name="androidx.media.session.MediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
 
     </application>
 

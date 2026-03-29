@@ -1,5 +1,7 @@
 package com.swapnil.smart.aaos
 
+import android.content.Context
+
 data class Song(
     val id: String,
     val title: String,
@@ -11,7 +13,7 @@ data class Song(
 )
 
 object MusicData {
-    val songs = listOf(
+    var songs = listOf(
         Song(
             id = "1",
             title = "Kesariya",
@@ -58,4 +60,12 @@ object MusicData {
             artUrl = "https://picsum.photos/seed/dildhadakne/200/200"
         )
     )
+    fun init(context: Context) {
+        val local = LocalSongLoader.loadSongs(context)
+        // ✅ if local songs found use them, else keep the default list above
+        if (local.isNotEmpty()) {
+            songs = local
+        }
+        android.util.Log.d("SmartAAOS", "MusicData loaded: ${songs.size} songs")
+    }
 }
