@@ -69,6 +69,26 @@ object VehicleRepository {
         return try { vehicleService?.getOdometer() ?: 0f } catch (e: Exception) { 0f }
     }
 
+    fun getMake(): String {
+        return try { vehicleService?.getMake() ?: "Smart AAOS EV" } catch (e: Exception) { "Smart AAOS EV" }
+    }
+
+    fun getModel(): String {
+        return try { vehicleService?.getModel() ?: "Twin Turbo" } catch (e: Exception) { "Twin Turbo" }
+    }
+
+    fun getVin(): String {
+        return try { vehicleService?.getVin() ?: "" } catch (e: Exception) { "" }
+    }
+
+    fun getModelYear(): Int {
+        return try { vehicleService?.getModelYear() ?: 0 } catch (e: Exception) { 0 }
+    }
+
+    fun getFuelCapacityLitres(): Float {
+        return try { vehicleService?.getFuelCapacityLitres() ?: -1f } catch (e: Exception) { -1f }
+    }
+
     fun simulateDriving() {
         try {
             vehicleService?.simulateDriving(60f, 2000f, 70f)

@@ -3,7 +3,6 @@ package com.swapnil.smart.aaos.ui.screens
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
 import androidx.car.app.model.Action
-import androidx.car.app.model.ActionStrip
 import androidx.car.app.model.CarIcon
 import androidx.car.app.model.ItemList
 import androidx.car.app.model.ListTemplate
@@ -14,6 +13,7 @@ import androidx.core.graphics.drawable.IconCompat
 import com.swapnil.smart.aaos.media.MusicData
 import com.swapnil.smart.aaos.ui.NavigationCallback
 import com.swapnil.smart.aaos.utils.AlertRepository
+import com.swapnil.smart.aaos.utils.VehicleAlert
 import com.swapnil.smart.aaos.utils.AlbumArtLoader
 import com.swapnil.smart.aaos.vehicle.VehicleRepository
 import com.swapnil.smart.aaos.viewmodel.CarViewModelStore
@@ -27,8 +27,22 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
         VehicleRepository.connect(carContext)
         AlertRepository.start()
 
-        viewModel.isCarMoving.observeForever { invalidate() }
-        viewModel.currentAlert.observeForever { invalidate() }
+        // Invalidate only on actual state TRANSITIONS. The VehicleViewModel
+        // polls LiveData every second; observing and calling invalidate() on
+        // every post makes the host rebuild the ListTemplate each tick, which
+        // resets the user's scroll position to the top.
+        viewModel.isCarMoving.observeForever {
+            if (it != previousMoving) {
+                previousMoving = it
+                invalidate()
+            }
+        }
+        viewModel.currentAlert.observeForever {
+            if (it != previousAlert) {
+                previousAlert = it
+                invalidate()
+            }
+        }
 
         NavigationCallback.onPlaySong = { song ->
             screenManager.push(PlayerScreen(carContext, song, {}))
@@ -39,6 +53,9 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
             }
         }
     }
+
+    private var previousMoving: Boolean? = null
+    private var previousAlert: VehicleAlert? = null
 
     override fun onGetTemplate(): Template {
         val isMoving = viewModel.isCarMoving.value ?: false
@@ -72,6 +89,19 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
         // ── Vehicle section ───────────────────────────────────────────────
         val vehicleListBuilder = ItemList.Builder()
 
+        // Drive / Park toggle as a visible, tappable list row (avoids the
+        // head-unit ActionStrip constraint that permits at most one title action).
+        vehicleListBuilder.addItem(
+            Row.Builder()
+                .setTitle(if (isMoving) "Park" else "Drive")
+                .addText(if (isMoving) "Mode: Driving  ·  Tap to park" else "Mode: Parked  ·  Tap to drive")
+                .setOnClickListener {
+                    if (isMoving) viewModel.simulateParked()
+                    else viewModel.simulateDriving()
+                }
+                .build()
+        )
+
         val dashRowBuilder = Row.Builder()
             .setTitle("Dashboard")
             .addText("Speed  ·  RPM  ·  Fuel  ·  Gear")
@@ -90,19 +120,13 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
                 .build()
         )
 
-        // ── Drive / Park action ───────────────────────────────────────────
-        val driveAction = Action.Builder()
-            .setTitle(if (isMoving) "Park" else "Drive")
-            .setOnClickListener {
-                if (isMoving) viewModel.simulateParked()
-                else viewModel.simulateDriving()
-            }
-            .build()
+        // ── Drive / Park is provided as a row in the Vehicle section above ──
+        // (head-unit ActionStrip constraint allows at most one title action,
+        // so we keep the strip empty to avoid template-render crashes.)
 
         val templateBuilder = ListTemplate.Builder()
             .setTitle(if (isMoving) "Smart AAOS  —  Driving" else "Smart AAOS  —  Parked")
             .setHeaderAction(Action.APP_ICON)
-            .setActionStrip(ActionStrip.Builder().addAction(driveAction).build())
 
         // Alert section (only when active)
         viewModel.currentAlert.value?.let { alert ->
@@ -122,13 +146,13 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
 
         templateBuilder
             .addSectionedList(
+                SectionedItemList.create(vehicleListBuilder.build(), "Vehicle")
+            )
+            .addSectionedList(
                 SectionedItemList.create(
                     musicListBuilder.build(),
                     "Music Library  ·  ${MusicData.songs.size} Songs"
                 )
-            )
-            .addSectionedList(
-                SectionedItemList.create(vehicleListBuilder.build(), "Vehicle")
             )
 
         return templateBuilder.build()
