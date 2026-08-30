@@ -52,6 +52,18 @@ object GaugeDrawer {
             )
         }
 
+        // Speed labels (0/40/80/120/160/200) on a rotated canvas
+        for (i in 0..10 step 2) {
+            val a = Math.toRadians(135.0 + i * 27.0)
+            c.save()
+            c.rotate((135.0 + i * 27.0).toFloat(), cx, cy)
+            c.drawText(
+                (i * 20).toString(), cx + radius * 0.58f, cy + size * 0.014f,
+                textPaint(Color.rgb(160, 175, 190), size * 0.032f)
+            )
+            c.restore()
+        }
+
         // Needle
         val needlePaint = strokePaint(Color.rgb(255, 80, 80), size * 0.02f)
         val a = Math.toRadians(135.0 + 270.0 * frac)
@@ -101,6 +113,18 @@ object GaugeDrawer {
         val redStart = 180f + 180f * (redLine / 8000f)
         c.drawArc(rect, redStart, 180f - redStart, false, strokePaint(Color.rgb(180, 40, 40), stroke))
 
+        // RPM labels (2/4/6/8 in thousands) along the arc
+        for (i in 1..4) {
+            val a = Math.toRadians(180.0 + 180.0 * (i / 4.0))
+            c.save()
+            c.rotate((180.0 + 180.0 * (i / 4.0)).toFloat(), size / 2f, size / 2f)
+            c.drawText(
+                (i * 2).toString(), size / 2f + size * 0.52f, size / 2f + size * 0.012f,
+                textPaint(Color.rgb(160, 175, 190), size * 0.032f)
+            )
+            c.restore()
+        }
+
         val tp = textPaint(Color.WHITE, size * 0.12f)
         c.drawText(rpm.toInt().toString(), size / 2f, size * 0.5f, tp)
         c.drawText(
@@ -110,9 +134,52 @@ object GaugeDrawer {
         return bm
     }
 
+    // ── Gear strip (P/R/N/D + engine state) ─────────────────────────────────
+    fun drawGearStrip(gear: String, engineOn: Boolean, warn: Boolean, size: Int = 340): Bitmap {
+        val h = (size * 0.30f).toInt().coerceAtLeast(72)
+        val bm = Bitmap.createBitmap(size, h, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bm)
+        val gears = listOf("P", "R", "N", "D")
+        val active = gear.uppercase().takeLast(1).let { if (it in gears) it else "P" }
+        val slotW = size * 0.13f
+        val gap = size * 0.035f
+        val x0 = size * 0.04f
+        gears.forEachIndexed { i, g ->
+            val x = x0 + i * (slotW + gap)
+            val selected = g == active
+            if (selected) {
+                c.drawRoundRect(
+                    RectF(x, h * 0.16f, x + slotW, h * 0.64f), size * 0.025f, size * 0.025f,
+                    paint(Color.rgb(0, 200, 120), Paint.Style.FILL)
+                )
+            } else {
+                c.drawRoundRect(
+                    RectF(x, h * 0.16f, x + slotW, h * 0.64f), size * 0.025f, size * 0.025f,
+                    strokePaint(Color.rgb(90, 102, 114), size * 0.012f)
+                )
+            }
+            c.drawText(
+                g, x + slotW / 2f, h * 0.58f,
+                textPaint(if (selected) Color.rgb(8, 10, 12) else Color.WHITE, size * 0.09f)
+            )
+        }
+        val dotColor = when {
+            warn -> Color.rgb(255, 180, 40)
+            engineOn -> Color.rgb(0, 210, 120)
+            else -> Color.rgb(120, 130, 140)
+        }
+        c.drawCircle(size * 0.82f, h * 0.28f, size * 0.022f, paint(dotColor, Paint.Style.FILL))
+        c.drawText(
+            if (engineOn) "ENGINE ON" else "ENGINE OFF",
+            size * 0.5f, h * 0.86f,
+            textPaint(Color.rgb(180, 190, 200), size * 0.042f)
+        )
+        return bm
+    }
+
     // ── Fuel bar (0-100%) ───────────────────────────────────────────────────
     fun drawFuelBar(fuel: Float, size: Int = 340): Bitmap {
-        val h = (size * 0.20f).toInt().coerceAtLeast(48)
+        val h = (size * 0.18f).toInt().coerceAtLeast(46)
         val bm = Bitmap.createBitmap(size, h, Bitmap.Config.ARGB_8888)
         val c = Canvas(bm)
         val frac = (fuel / 100f).coerceIn(0f, 1f)
@@ -123,39 +190,50 @@ object GaugeDrawer {
             else       -> Color.rgb(0, 200, 120)
         }
         val inset = size * 0.02f
-        drawRoundBar(c, inset, h * 0.28f, size - inset, h * 0.72f, Color.rgb(40, 48, 58), size * 0.03f)
-        drawRoundBar(c, inset, h * 0.28f, inset + (size - 2 * inset) * frac, h * 0.72f, color, size * 0.03f)
-
+        drawSegmentedBar(c, inset, h * 0.30f, size - inset, h * 0.70f, frac, color, size * 0.03f)
         c.drawText(
             "Fuel  ${fuel.toInt()}%", size * 0.06f, h * 0.85f,
-            textPaint(Color.WHITE, h * 0.5f)
+            textPaint(Color.WHITE, h * 0.55f)
         )
+        c.drawCircle(size - size * 0.05f, h * 0.50f, size * 0.02f, paint(color, Paint.Style.FILL))
         return bm
     }
 
     // ── Battery bar (0-100%) ────────────────────────────────────────────────
     fun drawBatteryBar(level: Float, size: Int = 340): Bitmap {
-        val h = (size * 0.20f).toInt().coerceAtLeast(48)
+        val h = (size * 0.18f).toInt().coerceAtLeast(46)
         val bm = Bitmap.createBitmap(size, h, Bitmap.Config.ARGB_8888)
         val c = Canvas(bm)
         val frac = (level / 100f).coerceIn(0f, 1f)
         val color = if (level < 20) Color.rgb(255, 70, 70) else Color.rgb(80, 180, 255)
         val inset = size * 0.02f
-        drawRoundBar(c, inset, h * 0.28f, size - inset, h * 0.72f, Color.rgb(40, 48, 58), size * 0.03f)
-        drawRoundBar(c, inset, h * 0.28f, inset + (size - 2 * inset) * frac, h * 0.72f, color, size * 0.03f)
+        drawSegmentedBar(c, inset, h * 0.30f, size - inset, h * 0.70f, frac, color, size * 0.03f)
         c.drawText(
             "Battery  ${level.toInt()}%", size * 0.06f, h * 0.85f,
-            textPaint(Color.WHITE, h * 0.5f)
+            textPaint(Color.WHITE, h * 0.55f)
         )
+        c.drawCircle(size - size * 0.05f, h * 0.50f, size * 0.02f, paint(color, Paint.Style.FILL))
         return bm
     }
 
-    private fun drawRoundBar(
+    // Segmented (tick-divided) rounded bar like an EV charge strip
+    private fun drawSegmentedBar(
         c: Canvas, l: Float, t: Float, r: Float, b: Float,
-        color: Int, radius: Float
+        frac: Float, color: Int, radius: Float
     ) {
-        if (r <= l + 2f) return
-        c.drawRoundRect(RectF(l, t, r, b), radius, radius, paint(color, Paint.Style.FILL))
+        val trackColor = Color.rgb(40, 48, 58)
+        c.drawRoundRect(RectF(l, t, r, b), radius, radius, paint(trackColor, Paint.Style.FILL))
+        val fillRight = l + (r - l) * frac
+        if (fillRight > l + radius) {
+            c.drawRoundRect(RectF(l, t, fillRight, b), radius, radius, paint(color, Paint.Style.FILL))
+        }
+        // segment dividers
+        val div = strokePaint(Color.rgb(10, 12, 14), Math.max(3f, (r - l) * 0.006f))
+        val n = 16
+        for (i in 1 until n) {
+            val x = l + (r - l) * (i / n.toFloat())
+            c.drawLine(x, t + (b - t) * 0.18f, x, b - (b - t) * 0.18f, div)
+        }
     }
 
     // ── Paint helpers ───────────────────────────────────────────────────────

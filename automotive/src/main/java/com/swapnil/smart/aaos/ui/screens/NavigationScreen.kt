@@ -36,27 +36,17 @@ class NavigationScreen(
     startActive: Boolean = false
 ) : Screen(carContext) {
 
-    private val destinations = listOf(
-        NavDestination(
-            "Downtown SF", "Market St & 4th St, San Francisco",
-            37.7749, -122.4194, 6.2
-        ),
-        NavDestination(
-            "Charging Station", "SoMa DC Fast Chargers, 5th St",
-            37.7810, -122.4010, 3.1
-        ),
-        NavDestination(
-            "SFO Airport", "International Terminal, San Mateo",
-            37.6213, -122.3790, 21.8
-        ),
-        NavDestination(
-            "Golden Gate Bridge", "Golden Gate Bridge, San Francisco",
-            37.8199, -122.4783, 14.5
-        )
-    )
+    private val destinations = defaultDestinations()
 
     private var activeDestination: NavDestination? = null
     private val surfaceRenderer = MapSurfaceRenderer { activeDestination }
+
+    /** Begin active navigation to [dest] immediately (used from the Home tab). */
+    fun startNavigation(dest: NavDestination) {
+        activeDestination = dest
+        surfaceRenderer.redraw()
+        invalidate()
+    }
 
     init {
         carContext.getCarService(AppManager::class.java).setSurfaceCallback(surfaceRenderer)
@@ -176,5 +166,26 @@ class NavigationScreen(
                     .build()
             )
             .build()
+    }
+
+    companion object {
+        fun defaultDestinations(): List<NavDestination> = listOf(
+            NavDestination(
+                "Downtown SF", "Market St & 4th St, San Francisco",
+                37.7749, -122.4194, 6.2
+            ),
+            NavDestination(
+                "Charging Station", "SoMa DC Fast Chargers, 5th St",
+                37.7810, -122.4010, 3.1
+            ),
+            NavDestination(
+                "SFO Airport", "International Terminal, San Mateo",
+                37.6213, -122.3790, 21.8
+            ),
+            NavDestination(
+                "Golden Gate Bridge", "Golden Gate Bridge, San Francisco",
+                37.8199, -122.4783, 14.5
+            )
+        )
     }
 }
