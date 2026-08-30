@@ -2,15 +2,17 @@ package com.swapnil.smart.aaos.ui.screens
 
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
-import androidx.car.app.model.*
-import com.swapnil.smart.aaos.utils.AlertRepository
-import com.swapnil.smart.aaos.vehicle.VehicleRepository
+import androidx.car.app.model.Action
+import androidx.car.app.model.ItemList
+import androidx.car.app.model.ListTemplate
+import androidx.car.app.model.Row
+import androidx.car.app.model.SectionedItemList
+import androidx.car.app.model.Template
 import com.swapnil.smart.aaos.viewmodel.CarViewModelStore
 import com.swapnil.smart.aaos.viewmodel.VehicleViewModel
 
 class DiagnosticsScreen(carContext: CarContext) : Screen(carContext) {
 
-    // ✅ shared ViewModel
     private val viewModel = CarViewModelStore.get(VehicleViewModel::class.java)
 
     init {
@@ -21,89 +23,88 @@ class DiagnosticsScreen(carContext: CarContext) : Screen(carContext) {
     }
 
     override fun onGetTemplate(): Template {
-        val listBuilder = ItemList.Builder()
-
-        // ✅ read from ViewModel
         val speed = viewModel.speed.value ?: 0f
         val rpm   = viewModel.rpm.value ?: 0f
         val fuel  = viewModel.fuel.value ?: 0f
 
-        listBuilder.addItem(
+        // ── System Health section ─────────────────────────────────────────
+        val healthListBuilder = ItemList.Builder()
+
+        val engineStatus = when {
+            rpm > 5000 -> "Critical  —  High RPM (${rpm.toInt()})"
+            rpm > 3500 -> "Warning  —  Elevated RPM (${rpm.toInt()})"
+            rpm > 0    -> "Normal  —  ${rpm.toInt()} RPM"
+            else       -> "Off"
+        }
+        healthListBuilder.addItem(
             Row.Builder()
-                .setTitle("🧠 Engine System")
-                .addText(when {
-                    rpm > 5000 -> "Critical 🚨"
-                    rpm > 3500 -> "Warning ⚠️"
-                    rpm > 0    -> "Normal ✅"
-                    else       -> "Off"
-                })
+                .setTitle("Engine")
+                .addText(engineStatus)
                 .build()
         )
 
-        listBuilder.addItem(
+        val fuelStatus = when {
+            fuel < 10  -> "Critical  —  Refuel Now (${fuel.toInt()}%)"
+            fuel < 25  -> "Low  —  Refuel Soon (${fuel.toInt()}%)"
+            else       -> "Good  —  ${fuel.toInt()}% remaining"
+        }
+        healthListBuilder.addItem(
             Row.Builder()
-                .setTitle("⛽ Fuel System")
-                .addText(when {
-                    fuel < 10  -> "Critical 🚨"
-                    fuel < 25  -> "Low ⚠️"
-                    else       -> "Good ✅"
-                })
+                .setTitle("Fuel System")
+                .addText(fuelStatus)
                 .build()
         )
 
-        listBuilder.addItem(
+        val speedStatus = when {
+            speed > 100 -> "Overspeed Alert  —  ${speed.toInt()} km/h"
+            speed > 60  -> "High Speed  —  ${speed.toInt()} km/h"
+            speed > 0   -> "Safe  —  ${speed.toInt()} km/h"
+            else        -> "Parked"
+        }
+        healthListBuilder.addItem(
             Row.Builder()
-                .setTitle("🚗 Driving Safety")
-                .addText(when {
-                    speed > 100 -> "Overspeed 🚨"
-                    speed > 60  -> "High Speed ⚠️"
-                    speed > 0   -> "Safe ✅"
-                    else        -> "Parked"
-                })
+                .setTitle("Driving Safety")
+                .addText(speedStatus)
                 .build()
         )
 
-        listBuilder.addItem(
-            Row.Builder()
-                .setTitle("──────── Issues ────────")
-                .build()
-        )
-
+        // ── Issues section ────────────────────────────────────────────────
+        val issuesListBuilder = ItemList.Builder()
         val alert = viewModel.currentAlert.value
 
         if (alert == null) {
-            listBuilder.addItem(
+            issuesListBuilder.addItem(
                 Row.Builder()
-                    .setTitle("✅ No Issues Detected")
-                    .addText("Vehicle is healthy")
+                    .setTitle("No Issues Detected")
+                    .addText("Vehicle is operating normally")
                     .build()
             )
         } else {
-            listBuilder.addItem(
+            issuesListBuilder.addItem(
                 Row.Builder()
-                    .setTitle("⚠️ Issue Detected")
-                    .addText(alert.message)
-                    .build()
-            )
-            listBuilder.addItem(
-                Row.Builder()
-                    .setTitle("Severity")
-                    .addText(alert.severity.name)
+                    .setTitle(alert.message)
+                    .addText("Severity: ${alert.severity.name}")
                     .build()
             )
             alert.dtcCode?.let { code ->
-                listBuilder.addItem(
+                issuesListBuilder.addItem(
                     Row.Builder()
-                        .setTitle("🔧 $code")
+                        .setTitle("DTC Code")
+                        .addText(code)
                         .build()
                 )
             }
         }
 
         return ListTemplate.Builder()
-            .setTitle("📊 Vehicle Diagnostics")
+            .setTitle("Vehicle Diagnostics")
             .setHeaderAction(Action.BACK)
-            .setSingleList(listBuilder.build())
+            .addSectionedList(
+                SectionedItemList.create(healthListBuilder.build(), "System Health")
+            )
+            .addSectionedList(
+                SectionedItemList.create(issuesListBuilder.build(), "Issues")
+            )
             .build()
     }
 }

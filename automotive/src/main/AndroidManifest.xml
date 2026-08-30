@@ -34,7 +34,7 @@
 
         <meta-data
             android:name="androidx.car.app.minCarApiLevel"
-            android:value="1" />
+            android:value="2" />
 
         <activity
             android:name="androidx.car.app.activity.CarAppActivity"

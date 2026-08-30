@@ -37,6 +37,39 @@ class PhoneMusicService : MediaBrowserServiceCompat() {
         const val NOTIFICATION_ID = 2
     }
 
+    override fun onCreate() {
+        super.onCreate()
+
+        exoPlayer = ExoPlayer.Builder(this).build()
+
+        exoPlayer.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_ENDED) {
+                    currentIndex = (currentIndex + 1) % MusicData.songs.size
+                    playSong(currentIndex)
+                }
+            }
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                Log.e("SmartAAOS", "Player error: ${error.message}")
+                // skip to next song automatically on any error
+                onSkipToNext()
+            }
+        })
+
+        session = MediaSessionCompat(this, "PhoneMusicService")
+        sessionToken = session.sessionToken
+        session.setCallback(callback)
+        session.setFlags(
+            MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
+                    MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS
+        )
+
+        createNotificationChannel()
+        updateMetadata(currentIndex)
+        updatePlaybackState(PlaybackStateCompat.STATE_NONE)
+    }
+
+
     private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
         when (focusChange) {
             AudioManager.AUDIOFOCUS_GAIN -> {
@@ -187,38 +220,6 @@ class PhoneMusicService : MediaBrowserServiceCompat() {
         return -1
     }
 
-
-    override fun onCreate() {
-        super.onCreate()
-
-        exoPlayer = ExoPlayer.Builder(this).build()
-
-        exoPlayer.addListener(object : Player.Listener {
-            override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_ENDED) {
-                    currentIndex = (currentIndex + 1) % MusicData.songs.size
-                    playSong(currentIndex)
-                }
-            }
-            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                Log.e("SmartAAOS", "Player error: ${error.message}")
-                // skip to next song automatically on any error
-                onSkipToNext()
-            }
-        })
-
-        session = MediaSessionCompat(this, "PhoneMusicService")
-        sessionToken = session.sessionToken
-        session.setCallback(callback)
-        session.setFlags(
-            MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
-                    MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS
-        )
-
-        createNotificationChannel()
-        updateMetadata(currentIndex)
-        updatePlaybackState(PlaybackStateCompat.STATE_NONE)
-    }
 
     private fun playSong(index: Int) {
         val song = MusicData.songs[index]

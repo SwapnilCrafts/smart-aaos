@@ -7,6 +7,7 @@ import android.support.v4.media.session.PlaybackStateCompat
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
 import androidx.car.app.model.Action
+import androidx.car.app.model.ActionStrip
 import androidx.car.app.model.CarColor
 import androidx.car.app.model.CarIcon
 import androidx.car.app.model.Pane
@@ -38,17 +39,13 @@ class PhonePlayerScreen(
                         carContext,
                         mediaBrowser!!.sessionToken
                     )
-                    mediaController?.transportControls
-                        ?.playFromMediaId(song.id, null)
+                    mediaController?.transportControls?.playFromMediaId(song.id, null)
                     isPlaying = true
 
                     mediaController?.registerCallback(
                         object : MediaControllerCompat.Callback() {
-                            override fun onPlaybackStateChanged(
-                                state: PlaybackStateCompat?
-                            ) {
-                                isPlaying = state?.state ==
-                                        PlaybackStateCompat.STATE_PLAYING
+                            override fun onPlaybackStateChanged(state: PlaybackStateCompat?) {
+                                isPlaying = state?.state == PlaybackStateCompat.STATE_PLAYING
                                 currentPositionMs = state?.position ?: 0L
                                 invalidate()
                             }
@@ -63,13 +60,13 @@ class PhonePlayerScreen(
     }
 
     override fun onGetTemplate(): Template {
-
-        val songNumber = MusicData.songs.indexOfFirst {
-            it.id == song.id
-        } + 1
-
-        val progressBar = buildProgressBar(currentPositionMs, song.durationMs)
+        val currentIndex = MusicData.songs.indexOfFirst { it.id == song.id }
+        val songNumber   = currentIndex + 1
+        val progressBar  = buildProgressBar(currentPositionMs, song.durationMs)
         val progressText = buildProgressText(currentPositionMs, song.durationMs)
+
+        val nextIndex = (currentIndex + 1) % MusicData.songs.size
+        val nextSong  = MusicData.songs[nextIndex]
 
         val playPauseAction = Action.Builder()
             .setTitle(if (isPlaying) "Pause" else "Play")
@@ -83,11 +80,8 @@ class PhonePlayerScreen(
                 ).setTint(CarColor.GREEN).build()
             )
             .setOnClickListener {
-                if (isPlaying) {
-                    mediaController?.transportControls?.pause()
-                } else {
-                    mediaController?.transportControls?.play()
-                }
+                if (isPlaying) mediaController?.transportControls?.pause()
+                else mediaController?.transportControls?.play()
             }
             .build()
 
@@ -95,19 +89,28 @@ class PhonePlayerScreen(
             .setTitle("Next")
             .setIcon(
                 CarIcon.Builder(
-                    IconCompat.createWithResource(
-                        carContext,
-                        android.R.drawable.ic_media_next
-                    )
+                    IconCompat.createWithResource(carContext, android.R.drawable.ic_media_next)
                 ).setTint(CarColor.BLUE).build()
             )
             .setOnClickListener {
                 mediaController?.transportControls?.skipToNext()
-                val currentIndex = MusicData.songs.indexOfFirst {
-                    it.id == song.id
-                }
-                val nextIndex = (currentIndex + 1) % MusicData.songs.size
                 song = MusicData.songs[nextIndex]
+                currentPositionMs = 0L
+                invalidate()
+            }
+            .build()
+
+        val previousAction = Action.Builder()
+            .setTitle("Prev")
+            .setIcon(
+                CarIcon.Builder(
+                    IconCompat.createWithResource(carContext, android.R.drawable.ic_media_previous)
+                ).setTint(CarColor.BLUE).build()
+            )
+            .setOnClickListener {
+                mediaController?.transportControls?.skipToPrevious()
+                val prevIndex = if (currentIndex > 0) currentIndex - 1 else MusicData.songs.size - 1
+                song = MusicData.songs[prevIndex]
                 currentPositionMs = 0L
                 invalidate()
             }
@@ -117,8 +120,14 @@ class PhonePlayerScreen(
             .addRow(
                 Row.Builder()
                     .setTitle(song.title)
-                    .addText("${song.artist}  •  ${song.album}")
-                    .addText("$progressBar  $progressText  •  Track $songNumber of ${MusicData.songs.size}")
+                    .addText("${song.artist}  ·  ${song.album}")
+                    .addText("$progressBar  $progressText  ·  Track $songNumber / ${MusicData.songs.size}")
+                    .build()
+            )
+            .addRow(
+                Row.Builder()
+                    .setTitle("Up Next")
+                    .addText("${nextSong.title}  ·  ${nextSong.artist}")
                     .build()
             )
             .addAction(playPauseAction)
@@ -128,26 +137,25 @@ class PhonePlayerScreen(
         return PaneTemplate.Builder(pane)
             .setTitle("Now Playing")
             .setHeaderAction(Action.BACK)
+            .setActionStrip(
+                ActionStrip.Builder()
+                    .addAction(previousAction)
+                    .build()
+            )
             .build()
     }
 
     private fun buildProgressBar(positionMs: Long, durationMs: Long): String {
         if (durationMs <= 0) return "░░░░░░░░░░░░░░░"
-        val progress = positionMs.toFloat() / durationMs.toFloat()
-        val totalBlocks = 15
-        val filledBlocks = (progress * totalBlocks).toInt()
-        val emptyBlocks = totalBlocks - filledBlocks
-        return "${"█".repeat(filledBlocks)}${"░".repeat(emptyBlocks)}"
+        val filled = (positionMs.toFloat() / durationMs.toFloat() * 15).toInt()
+        return "█".repeat(filled) + "░".repeat(15 - filled)
     }
 
-    private fun buildProgressText(positionMs: Long, durationMs: Long): String {
-        return "${formatTime(positionMs)} / ${formatTime(durationMs)}"
-    }
+    private fun buildProgressText(positionMs: Long, durationMs: Long) =
+        "${formatTime(positionMs)} / ${formatTime(durationMs)}"
 
     private fun formatTime(ms: Long): String {
-        val totalSeconds = ms / 1000
-        val minutes = totalSeconds / 60
-        val seconds = totalSeconds % 60
-        return "%d:%02d".format(minutes, seconds)
+        val seconds = ms / 1000
+        return "%d:%02d".format(seconds / 60, seconds % 60)
     }
 }

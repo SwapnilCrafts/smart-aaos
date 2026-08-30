@@ -1,6 +1,5 @@
 package com.swapnil.smart.aaos.media
 
-import android.R
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Intent
