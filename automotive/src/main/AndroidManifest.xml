@@ -23,6 +23,11 @@
     <uses-permission android:name="android.car.permission.CAR_ENERGY" />
     <uses-permission android:name="android.car.permission.CAR_INFO" />
 
+    <!-- Navigation/map template capabilities (car-app 1.7.0) -->
+    <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES" />
+    <uses-permission android:name="androidx.car.app.MAP_TEMPLATES" />
+    <uses-permission android:name="androidx.car.app.ACCESS_SURFACE" />
+
     <application
         android:label="Smart AAOS"
         android:icon="@mipmap/ic_launcher"

@@ -47,8 +47,8 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 
-    implementation("androidx.car.app:app:1.4.0")
-    implementation("androidx.car.app:app-automotive:1.4.0")
+    implementation("androidx.car.app:app:1.7.0")
+    implementation("androidx.car.app:app-automotive:1.7.0")
     implementation("androidx.media:media:1.7.0")
 
     implementation("androidx.media3:media3-exoplayer:1.3.0")
