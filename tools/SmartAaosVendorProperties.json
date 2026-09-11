@@ -1,0 +1,42 @@
+{
+    "_comment": [
+        "Custom vendor VHAL properties for SmartAAOS.",
+        "",
+        "Installed to /vendor/etc/automotive/vhalconfig/ - the reference VHAL",
+        "loads every .json file in that directory at startup, so a new property",
+        "needs no C++ and no rebuild of the HAL.",
+        "",
+        "Property IDs are bit fields: group | area | type | unique id.",
+        "  0x20000000 VENDOR group (an OEM's own namespace)",
+        "  0x01000000 GLOBAL area (not per-seat or per-door)",
+        "  0x00400000 INT32, 0x00600000 FLOAT, 0x00100000 STRING",
+        "",
+        "The stock config files use C++ enum names such as",
+        "TestVendorProperty::MIXED_TYPE_PROPERTY_FOR_TEST. Those only resolve",
+        "for names compiled into the VHAL, so a genuinely new property has to",
+        "use the raw numeric ID. The loader accepts that."
+    ],
+    "properties": [
+        {
+            "_name": "VENDOR_DRIVE_MODE  0x21400001  INT32, writable",
+            "property": 557842433,
+            "defaultValue": { "int32Values": [1] },
+            "access": "VehiclePropertyAccess::READ_WRITE",
+            "changeMode": "VehiclePropertyChangeMode::ON_CHANGE"
+        },
+        {
+            "_name": "VENDOR_SERVICE_DUE_KM  0x21600002  FLOAT, read only",
+            "property": 559939586,
+            "defaultValue": { "floatValues": [7500.0] },
+            "access": "VehiclePropertyAccess::READ",
+            "changeMode": "VehiclePropertyChangeMode::ON_CHANGE"
+        },
+        {
+            "_name": "VENDOR_BATTERY_HEALTH  0x21100003  STRING, read only",
+            "property": 554696707,
+            "defaultValue": { "stringValue": "GOOD" },
+            "access": "VehiclePropertyAccess::READ",
+            "changeMode": "VehiclePropertyChangeMode::STATIC"
+        }
+    ]
+}

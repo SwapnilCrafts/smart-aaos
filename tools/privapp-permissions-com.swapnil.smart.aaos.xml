@@ -25,5 +25,7 @@
         <permission name="android.car.permission.CAR_MILEAGE"/>
         <!-- INFO_VIN -->
         <permission name="android.car.permission.CAR_IDENTIFICATION"/>
+        <!-- custom vendor properties defined by this project -->
+        <permission name="android.car.permission.CAR_VENDOR_EXTENSION"/>
     </privapp-permissions>
 </permissions>

@@ -168,6 +168,21 @@ object VehicleRepository {
         return try { vehicleService?.getModelYear() ?: 0 } catch (e: Exception) { 0 }
     }
 
+    // ---- custom vendor properties ----
+
+    /** Drive mode, or null when the vendor config is not installed. */
+    fun getDriveMode(): Int? =
+        try { vehicleService?.driveMode?.takeIf { it >= 0 } } catch (e: Exception) { null }
+
+    fun setDriveMode(mode: Int): Boolean =
+        try { vehicleService?.setDriveMode(mode) ?: false } catch (e: Exception) { false }
+
+    fun getServiceDueKm(): Float? =
+        try { vehicleService?.serviceDueKm?.takeIf { it >= 0f } } catch (e: Exception) { null }
+
+    fun getBatteryHealth(): String? =
+        try { vehicleService?.batteryHealth?.takeIf { it.isNotEmpty() } } catch (e: Exception) { null }
+
     fun getFuelCapacityLitres(): Float {
         return try { vehicleService?.getFuelCapacityLitres() ?: -1f } catch (e: Exception) { -1f }
     }

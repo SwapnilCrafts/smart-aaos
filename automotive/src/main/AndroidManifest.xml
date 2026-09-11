@@ -51,6 +51,8 @@
     <uses-permission android:name="android.car.permission.CAR_MILEAGE" />
     <!-- privileged: INFO_VIN -->
     <uses-permission android:name="android.car.permission.CAR_IDENTIFICATION" />
+    <!-- privileged: every custom vendor property (see VendorProperties.kt) -->
+    <uses-permission android:name="android.car.permission.CAR_VENDOR_EXTENSION" />
 
     <!-- Navigation/map template capabilities (car-app 1.7.0) -->
     <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES" />

@@ -40,6 +40,14 @@ interface IVehicleDataService {
     int      getModelYear();
     float    getFuelCapacityLitres();
 
+    // Custom vendor properties added by this project, gated by
+    // CAR_VENDOR_EXTENSION. Return -1 / "" when unavailable, which is the
+    // normal case on a stock emulator without the JSON config installed.
+    int      getDriveMode();
+    boolean  setDriveMode(int mode);
+    float    getServiceDueKm();
+    String   getBatteryHealth();
+
     void simulateDriving(float speedKmh, float rpm, float fuel);
 
     void simulateParked();

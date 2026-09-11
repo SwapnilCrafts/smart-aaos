@@ -504,6 +504,135 @@ day-to-day development is ordinary app development on top of it.
 
 ---
 
+## 12. A custom vendor VHAL property needs no C++
+
+**Assumption I started with.** Adding a vehicle property means writing a VHAL
+implementation in C++ and building AOSP from source. That is what the job
+adverts imply, and it is why I had this queued as a multi-week phase needing a
+Linux machine.
+
+**What is actually true.** The reference VHAL is config-driven. Its binary
+contains the path it scans:
+
+```bash
+adb pull /vendor/bin/hw/android.hardware.automotive.vehicle@V3-emulator-service
+strings ./android.hardware.automotive.vehicle@V3-emulator-service | grep -i vhal
+# /vendor/etc/automotive/vhalconfig/
+# /vendor/etc/automotive/vhaloverride/
+# persist.vendor.vhal_init_value_override
+```
+
+Every `.json` file in that directory is loaded at service start:
+
+```
+I FakeVehicleHardware: loading properties from /vendor/etc/automotive/vhalconfig/
+I FakeVehicleHardware: loading properties from .../DefaultProperties.json
+I FakeVehicleHardware: loading properties from .../SmartAaosVendorProperties.json
+```
+
+So a new property is a config change plus a service restart. No C++, no AOSP
+checkout, no reflash.
+
+### Property IDs are bit fields, not identifiers
+
+This is the part that has to be right, because the VHAL derives the type from
+the ID itself:
+
+```
+0x21400001
+  2_______   group  VENDOR  0x20000000   (SYSTEM is 0x10000000)
+  _1______   area   GLOBAL  0x01000000   (SEAT, DOOR, WINDOW ... exist too)
+  __4_____   type   INT32   0x00400000   (FLOAT 0x00600000, STRING 0x00100000)
+  ___00001   id     an OEM's own number within the vendor group
+```
+
+Anything under `0x20000000` belongs to the manufacturer, and Google will never
+assign a conflicting meaning to it. That is how a real car exposes hardware the
+standard VHAL has no property for.
+
+### Symbolic names in the stock configs do not work for new properties
+
+The shipped configs name properties through C++ enums:
+
+```json
+{ "property": "TestVendorProperty::MIXED_TYPE_PROPERTY_FOR_TEST" }
+```
+
+Those resolve only for names compiled into the VHAL, so a genuinely new
+property cannot use that form. The loader accepts a raw integer instead, which
+is what makes this possible without touching C++:
+
+```json
+{
+    "property": 557842433,
+    "defaultValue": { "int32Values": [1] },
+    "access": "VehiclePropertyAccess::READ_WRITE",
+    "changeMode": "VehiclePropertyChangeMode::ON_CHANGE"
+}
+```
+
+Unknown keys are ignored, so `_comment` fields can be used to document the file
+even though JSON has no comment syntax. Verified: the file still parses and the
+properties still read.
+
+### Reading them needs the privileged install
+
+`CAR_VENDOR_EXTENSION` gates every vendor property and is
+`signature|privileged`, so this only works on top of finding 11.
+
+CarService says so explicitly when the app touches one, and the wording shows
+the permission is only a default:
+
+```
+CAR.PropertyHalServiceConfigs: no custom vendor write permission for:
+    0x21400001, default to PERMISSION_VENDOR_EXTENSION
+```
+
+So an OEM can map individual vendor properties to their own permissions rather
+than lumping them all behind `CAR_VENDOR_EXTENSION` — which matters in a real
+car, where one preinstalled app should be able to read a battery metric without
+also gaining write access to every other vendor property.
+
+### Writing hits the boxed-type trap again, from the other side
+
+Finding 3 was about `Float::class.java` resolving to primitive `float.class` on
+a read. The write path has the mirror-image problem.
+`setProperty` is `<E> setProperty(Class<E>, int, int, E)`:
+
+```kotlin
+pm.setProperty(Int::class.java, id, area, mode)         // int.class, matches nothing
+pm.setProperty(Integer::class.java, id, area, mode)     // will not compile:
+                                                        // Kotlin maps Integer back to Int,
+                                                        // so E cannot be inferred
+pm.setProperty(Int::class.javaObjectType, id, area, mode)  // correct
+```
+
+`Int::class.javaObjectType` is `java.lang.Integer`, which is what the property
+carries, and `E` infers as `Int` so a plain Kotlin `Int` can be passed.
+
+### These changes are not persistent
+
+`adb remount` on this AVD reports:
+
+```
+Failed to allocate scratch on /data, fallback to use free space on super
+Using overlayfs for /system
+```
+
+That overlay holds the priv-app install, the permission allowlist and the
+vendor JSON — and it is discarded when the emulator process exits. It survives
+`adb reboot` inside a running emulator, which is why I initially believed it was
+persistent: the install script reboots, and that worked. It does not survive
+closing the emulator. Both install scripts have to be re-run after each start.
+
+**Conclusion.** The C++/AOSP work is real, but it is not the entry point to
+vendor properties. Defining the interface, choosing the ID, wiring the
+permission and consuming it from the app is all doable on a stock emulator in
+an afternoon. C++ is needed when a property needs *behaviour* — a computed
+value, or real hardware and CAN traffic behind it — not to exist.
+
+---
+
 ## Command reference
 
 ```bash

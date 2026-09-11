@@ -329,6 +329,13 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
             )
             .addItem(
                 Row.Builder()
+                    .setTitle("Vendor Properties")
+                    .addText("Custom VHAL properties  ·  drive mode")
+                    .setOnClickListener { screenManager.push(VendorPropertiesScreen(carContext)) }
+                    .build()
+            )
+            .addItem(
+                Row.Builder()
                     .setTitle("Simulation")
                     .addText("Trigger overspeed  ·  faults  ·  alerts")
                     .setOnClickListener { screenManager.push(SimulationScreen(carContext)) }

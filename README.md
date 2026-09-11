@@ -27,6 +27,7 @@ emulator with `cmd car_service get-carpropertyconfig`.
 | Gear, ignition, parking brake | **live VHAL** | `CAR_POWERTRAIN` is `protectionLevel:normal` |
 | Make, model, year, fuel capacity | **live VHAL** | `CAR_INFO` is `normal` |
 | Speed, fuel, battery | **live VHAL** | `CAR_SPEED` / `CAR_ENERGY` are `dangerous` — a runtime request, like location |
+| Custom vendor properties | **live VHAL**, privileged install only | `CAR_VENDOR_EXTENSION`; defined in a JSON config this project installs |
 | RPM, odometer, VIN | **live VHAL**, privileged install only | `CAR_ENGINE_DETAILED` / `CAR_MILEAGE` / `CAR_IDENTIFICATION` are `signature\|privileged`; simulated on a normal install |
 
 The middle row is the part worth knowing. I assumed for a long time that
@@ -250,7 +251,10 @@ Every command, with a description of what it does and why, is collected in
       battery live on a normal install
 - [x] Privileged system app install for RPM / odometer / VIN, scripted in
       `tools/` — all 14 properties now read live VHAL
-- [ ] Custom vendor VHAL property implemented in AOSP (C++)
+- [x] Custom vendor VHAL properties (read, write, subscribe) via JSON config —
+      no C++ or AOSP build required, see `tools/install-vendor-properties.sh`
+- [ ] Custom vendor property implemented in C++ against an AOSP build
+      (needs a Linux host; AOSP does not build on macOS)
 - [ ] Android Auto verification via DHU
 
 ---

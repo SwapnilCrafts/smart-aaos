@@ -190,6 +190,23 @@ class VehicleDataService : Service() {
             Log.d(TAG, "Client unregistered")
         }
 
+        // ---- custom vendor properties ----
+        // No simulated fallback on purpose: a made-up value would hide whether
+        // the vendor config is actually installed, which is the whole point of
+        // these three.
+
+        override fun getDriveMode(): Int =
+            halManager.getDriveMode() ?: -1
+
+        override fun setDriveMode(mode: Int): Boolean =
+            halManager.setDriveMode(mode)
+
+        override fun getServiceDueKm(): Float =
+            halManager.getServiceDueKm() ?: -1f
+
+        override fun getBatteryHealth(): String =
+            halManager.getBatteryHealth() ?: ""
+
         override fun simulateDriving(
             speedKmh: Float,
             rpm: Float,

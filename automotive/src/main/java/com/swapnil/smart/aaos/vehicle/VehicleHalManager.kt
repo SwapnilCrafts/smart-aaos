@@ -70,7 +70,11 @@ class VehicleHalManager(context: Context) {
             VehiclePropertyIds.GEAR_SELECTION to CarPropertyManager.SENSOR_RATE_ONCHANGE,
             VehiclePropertyIds.CURRENT_GEAR to CarPropertyManager.SENSOR_RATE_ONCHANGE,
             VehiclePropertyIds.IGNITION_STATE to CarPropertyManager.SENSOR_RATE_ONCHANGE,
-            VehiclePropertyIds.PARKING_BRAKE_ON to CarPropertyManager.SENSOR_RATE_ONCHANGE
+            VehiclePropertyIds.PARKING_BRAKE_ON to CarPropertyManager.SENSOR_RATE_ONCHANGE,
+            // Custom vendor property. Subscribing proves the round trip: the app
+            // writes the drive mode, the VHAL stores it, and the change comes
+            // back as an event rather than needing a re-read.
+            VendorProperties.DRIVE_MODE to CarPropertyManager.SENSOR_RATE_ONCHANGE
         )
     }
 
@@ -296,6 +300,57 @@ class VehicleHalManager(context: Context) {
     /** True when the parking brake is engaged, or null when unavailable. */
     fun isParkingBrakeOn(): Boolean? = readBoolean(VehiclePropertyIds.PARKING_BRAKE_ON)
 
+    // ---- Custom vendor properties -------------------------------------------
+    // These are not part of the standard VHAL. They are defined by this project
+    // in a JSON config on the device, exactly as an OEM would add properties
+    // for hardware Google has no standard property for. See VendorProperties.
+
+    /** Drive mode, or null when the vendor property is missing or blocked. */
+    fun getDriveMode(): Int? = readInt(VendorProperties.DRIVE_MODE)
+
+    /** Kilometres until the next service. */
+    fun getServiceDueKm(): Float? = readFloat(VendorProperties.SERVICE_DUE_KM)
+
+    /** Manufacturer battery health grade, e.g. "GOOD". */
+    fun getBatteryHealth(): String? = readString(VendorProperties.BATTERY_HEALTH)
+
+    /**
+     * Writes the drive mode back to the VHAL.
+     *
+     * The only write path in this app, and it meets the same primitive/boxed
+     * trap as reading did, from the other side.
+     *
+     * setProperty is <E> setProperty(Class<E>, int, int, E), so the class and
+     * the value have to agree on E. Two ways to get this wrong in Kotlin:
+     *
+     *   Int::class.java        -> int.class, a primitive; nothing matches it
+     *   Integer::class.java    -> Kotlin maps Integer back to Int, so E is no
+     *                             longer inferable and the call will not compile
+     *
+     * Int::class.javaObjectType is the one that works: it is java.lang.Integer,
+     * which is what the property actually carries, and E infers as Int so a
+     * plain Kotlin Int can be passed.
+     *
+     * Returns true when the write was accepted. A vendor property declared
+     * READ in its JSON config throws, so failure is normal and handled.
+     */
+    fun setDriveMode(mode: Int): Boolean {
+        val pm = propertyManager ?: return false
+        return try {
+            pm.setProperty(
+                Int::class.javaObjectType,
+                VendorProperties.DRIVE_MODE,
+                AREA_GLOBAL,
+                mode
+            )
+            Log.d(TAG, "setDriveMode -> $mode (${VendorProperties.driveModeLabel(mode)})")
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "setDriveMode($mode) rejected: ${e.message}")
+            false
+        }
+    }
+
     /**
      * True when the driver's seatbelt is buckled, or null when unavailable.
      * SEAT_BELT_BUCKLED is BOOLEAN with SEAT area type — it must be read per
@@ -416,10 +471,14 @@ class VehicleHalManager(context: Context) {
             "INFO_MODEL" to VehiclePropertyIds.INFO_MODEL,
             "INFO_MODEL_YEAR" to VehiclePropertyIds.INFO_MODEL_YEAR,
             "INFO_VIN" to VehiclePropertyIds.INFO_VIN,
-            "INFO_FUEL_CAPACITY" to VehiclePropertyIds.INFO_FUEL_CAPACITY
+            "INFO_FUEL_CAPACITY" to VehiclePropertyIds.INFO_FUEL_CAPACITY,
+            // custom, added by this project - absent on a stock emulator
+            "VENDOR_DRIVE_MODE" to VendorProperties.DRIVE_MODE,
+            "VENDOR_SERVICE_DUE_KM" to VendorProperties.SERVICE_DUE_KM,
+            "VENDOR_BATTERY_HEALTH" to VendorProperties.BATTERY_HEALTH
         )
         props.forEach { (name, id) ->
-            Log.d(TAG, "Availability: %-20s %s".format(
+            Log.d(TAG, "Availability: %-22s %s".format(
                 name, if (isSupported(id)) "LIVE VHAL" else "blocked -> simulated"
             ))
         }

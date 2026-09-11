@@ -24,6 +24,12 @@
 #   Deleting the .qcow2 overlays in the AVD directory restores the pristine
 #   images:  rm ~/.android/avd/<name>.avd/*.qcow2
 #
+# Persistence
+#   On this AVD `adb remount` reports "Failed to allocate scratch on /data,
+#   fallback to use free space on super". That overlay is lost when the
+#   emulator process exits, so the install survives `adb reboot` but NOT
+#   closing and reopening the emulator. Re-run this script after each start.
+#
 set -euo pipefail
 
 PKG=com.swapnil.smart.aaos

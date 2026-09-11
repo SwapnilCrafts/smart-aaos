@@ -240,8 +240,35 @@ emulator -avd AAOS_API35_UserDebug -writable-system -no-snapshot-load
 ```
 
 Only needed for RPM, odometer and VIN. Everything else works without it.
-Once done it stays done: a normal `installDebug` afterwards keeps the
-privileged permissions.
+
+A normal `installDebug` afterwards keeps the privileged permissions, because
+the package then counts as an updated system app.
+
+But it does **not** survive closing the emulator. On this AVD `adb remount`
+cannot allocate scratch on `/data` and falls back to free space on super, and
+that overlay is discarded when the emulator process exits. So:
+
+- survives `adb reboot` — yes
+- survives closing and reopening the emulator — no, re-run the script
+
+### Custom vendor properties
+
+```bash
+./tools/install-vendor-properties.sh
+```
+
+Adds three properties to the VHAL from a JSON config. No C++ needed — the
+reference VHAL loads every `.json` in `/vendor/etc/automotive/vhalconfig/` at
+startup. Same persistence caveat as above.
+
+| Property | ID | Type | Access |
+|---|---|---|---|
+| `VENDOR_DRIVE_MODE` | `0x21400001` | INT32 | read/write |
+| `VENDOR_SERVICE_DUE_KM` | `0x21600002` | FLOAT | read |
+| `VENDOR_BATTERY_HEALTH` | `0x21100003` | STRING | read |
+
+See them in the app at **Info → Vendor Properties**. Drive mode is tappable,
+which writes back to the VHAL.
 
 ### Driver distraction ("can't use this while driving")
 
