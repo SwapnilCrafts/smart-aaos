@@ -7,10 +7,13 @@ car audio and media, Car App Library templates, and surface rendering.
 Runs natively on the car's head unit (no phone required), with a second
 module targeting Android Auto projection.
 
-Findings from the investigation behind it are written up in
-**[FINDINGS.md](FINDINGS.md)** — the permission model, real VHAL property
-types and units, and several platform behaviours that contradict what the
-documentation implies.
+Two companion documents:
+
+- **[FINDINGS.md](FINDINGS.md)** — the permission model, real VHAL property
+  types and units, and several platform behaviours that contradict what the
+  documentation implies.
+- **[GUIDE.md](GUIDE.md)** — what each file does, and every command needed to
+  build, run and test the app on an emulator.
 
 ---
 
@@ -198,7 +201,8 @@ Driving faults and alerts are triggered from **Info -> Simulation**
 (overspeed, engine fault, low fuel, manual DTC), since the alert
 thresholds are never crossed by normal simulated driving.
 
-More commands, including MediaStore on a multi-user head unit, are in
+Every command, with a description of what it does and why, is collected in
+[GUIDE.md](GUIDE.md). The reasoning behind each finding is in
 [FINDINGS.md](FINDINGS.md).
 
 ---
