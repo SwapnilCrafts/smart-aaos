@@ -9,7 +9,8 @@ what was built, where it lives, and how to test it again.
 - [2. How data flows](#2-how-data-flows)
 - [3. What each file does](#3-what-each-file-does)
 - [4. Commands](#4-commands)
-- [5. Where things went wrong](#5-where-things-went-wrong)
+- [5. Reading the real VHAL source](#5-reading-the-real-vhal-source)
+- [6. Where things went wrong](#6-where-things-went-wrong)
 
 ---
 
@@ -334,7 +335,41 @@ adb shell content call --uri content://media --method scan_volume \
 
 ---
 
-## 5. Where things went wrong
+## 5. Reading the real VHAL source
+
+Kept outside this repo, at `~/Documents/AndroidProjects/aosp-reference/`.
+10 MB, no build, no AOSP checkout:
+
+```bash
+mkdir -p ~/Documents/AndroidProjects/aosp-reference
+cd ~/Documents/AndroidProjects/aosp-reference
+git clone --depth=1 --filter=blob:none --sparse \
+  -b android15-automotiveos-release \
+  https://android.googlesource.com/platform/hardware/interfaces hardware-interfaces
+cd hardware-interfaces
+git sparse-checkout set automotive/vehicle
+```
+
+`android15-automotiveos-release` is the branch matching the API 35 automotive
+emulator. `--filter=blob:none --sparse` is what keeps it at 10 MB instead of
+several GB: only the files actually checked out are downloaded.
+
+Worth reading, in this order:
+
+| File | Lines | Why |
+|---|---|---|
+| `aidl/impl/hardware/include/IVehicleHardware.h` | 250 | the interface a real VHAL implements — start here |
+| `aidl/impl/default_config/config/*.json` | — | the shipped property configs |
+| `aidl/impl/default_config/JsonConfigLoader/src/JsonConfigLoader.cpp` | 724 | how those configs are parsed |
+| `aidl/impl/fake_impl/hardware/src/FakeVehicleHardware.cpp` | 2614 | the emulator's implementation |
+| `aidl/impl/utils/test_vendor_properties/.../TestVendorProperty.aidl` | — | how AOSP declares vendor property IDs |
+
+These can be read and edited on macOS. Only *building* them needs Linux, since
+they compile through Soong against AOSP's headers.
+
+---
+
+## 6. Where things went wrong
 
 Short version. Full detail with proof is in [FINDINGS.md](FINDINGS.md).
 

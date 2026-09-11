@@ -625,6 +625,77 @@ vendor JSON — and it is discarded when the emulator process exits. It survives
 persistent: the install script reboots, and that worked. It does not survive
 closing the emulator. Both install scripts have to be re-run after each start.
 
+### Confirmed against AOSP source
+
+The above was all worked out from the device. Afterwards I shallow-cloned the
+VHAL to check it, which takes 10 MB and no build:
+
+```bash
+git clone --depth=1 --filter=blob:none --sparse \
+  -b android15-automotiveos-release \
+  https://android.googlesource.com/platform/hardware/interfaces
+cd interfaces && git sparse-checkout set automotive/vehicle
+```
+
+Each empirical finding holds:
+
+**The config directory** — `fake_impl/hardware/src/FakeVehicleHardware.cpp`:
+
+```cpp
+constexpr char DEFAULT_CONFIG_DIR[]  = "/vendor/etc/automotive/vhalconfig/";
+constexpr char OVERRIDE_CONFIG_DIR[] = "/vendor/etc/automotive/vhaloverride/";
+```
+
+**Numeric IDs are a deliberate branch**, not an accident —
+`default_config/JsonConfigLoader/src/JsonConfigLoader.cpp`:
+
+```cpp
+template <class T>
+Result<T> JsonValueParser::parseValue(const std::string& fieldName,
+                                      const Json::Value& value) const {
+    if (!value.isString()) {
+        return convertValueToType<T>(fieldName, value);   // raw number
+    }
+    // otherwise resolve "Type::CONSTANT" through the enum tables
+```
+
+So a string is treated as a constant name and anything else as a literal. Both
+forms are supported by design.
+
+**Unknown keys are ignored** because the loader only ever asks for fields by
+name (`parentJsonNode.isMember(fieldName)`); it never enumerates the object. So
+`_comment` keys are safe.
+
+**The bit-field arithmetic is how AOSP writes it too** —
+`utils/test_vendor_properties/.../TestVendorProperty.aidl`:
+
+```java
+VENDOR_CLUSTER_SWITCH_UI = 0x0F34 + 0x20000000 + 0x01000000 + 0x00400000;
+//                         id     + VENDOR     + GLOBAL     + INT32
+```
+
+Identical to the `vendorId()` helper in `VendorProperties.kt`, which is
+reassuring: the ID scheme was not guesswork.
+
+### What the C++ work would actually be
+
+The interface a real VHAL implements is small —
+`hardware/include/IVehicleHardware.h` is 250 lines with about six pure virtual
+methods:
+
+```cpp
+virtual std::vector<VehiclePropConfig> getAllPropertyConfigs() const = 0;
+virtual StatusCode getValues(callback, requests) = 0;
+virtual StatusCode setValues(callback, requests) = 0;
+virtual StatusCode checkHealth() = 0;
+virtual void registerOnPropertyChangeEvent(...) = 0;
+virtual DumpResult dump(options) = 0;
+```
+
+`FakeVehicleHardware.cpp` is the 2,600-line reference implementation of it.
+Reading and modifying either needs nothing but an editor; only *compiling* them
+needs Linux, because they build through Soong against AOSP's headers.
+
 **Conclusion.** The C++/AOSP work is real, but it is not the entry point to
 vendor properties. Defining the interface, choosing the ID, wiring the
 permission and consuming it from the app is all doable on a stock emulator in
