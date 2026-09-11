@@ -1,8 +1,20 @@
 package com.swapnil.smart.aaos.vehicle
 
 import android.content.*
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
+
+/** Immutable view of vehicle state, as pushed by [VehicleDataService]. */
+data class VehicleSnapshot(
+    val speedKmh: Float = 0f,
+    val rpm: Float = 0f,
+    val fuelPercent: Float = 0f,
+    val gear: String = "P",
+    val engineOn: Boolean = false,
+    val odometerKm: Float = 0f
+)
 
 object VehicleRepository {
 
@@ -14,18 +26,85 @@ object VehicleRepository {
 
     private var isBinding = false
 
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    /**
+     * Latest pushed state. Updated from a Binder thread, read from the main
+     * thread, hence @Volatile.
+     */
+    @Volatile
+    var snapshot: VehicleSnapshot = VehicleSnapshot()
+        private set
+
+    private val dataListeners = mutableListOf<() -> Unit>()
+    private val connectionListeners = mutableListOf<() -> Unit>()
+
+    /**
+     * Receives pushed vehicle state. Called on a Binder thread, so listeners
+     * are dispatched to the main thread - they touch LiveData and screen
+     * state.
+     */
+    private val dataCallback = object : IVehicleDataCallback.Stub() {
+        override fun onVehicleData(
+            speedKmh: Float,
+            rpm: Float,
+            fuelPercent: Float,
+            gear: String?,
+            engineOn: Boolean,
+            odometerKm: Float
+        ) {
+            snapshot = VehicleSnapshot(
+                speedKmh = speedKmh,
+                rpm = rpm,
+                fuelPercent = fuelPercent,
+                gear = gear ?: "P",
+                engineOn = engineOn,
+                odometerKm = odometerKm
+            )
+            mainHandler.post { dataListeners.toList().forEach { it() } }
+        }
+    }
+
+    /** Notified on every pushed update. */
+    fun observe(listener: () -> Unit) {
+        dataListeners.add(listener)
+    }
+
+    fun removeObserver(listener: () -> Unit) {
+        dataListeners.remove(listener)
+    }
+
+    /** Notified when the AIDL connection is established or lost. */
+    fun observeConnection(listener: () -> Unit) {
+        connectionListeners.add(listener)
+    }
+
+    fun removeConnectionObserver(listener: () -> Unit) {
+        connectionListeners.remove(listener)
+    }
+
     // ✅ Service connection (ONLY ONE in whole app)
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            Log.d(TAG, "✅ AIDL connected (GLOBAL)")
-            vehicleService = IVehicleDataService.Stub.asInterface(service)
+            Log.d(TAG, "AIDL connected")
+            val remote = IVehicleDataService.Stub.asInterface(service)
+            vehicleService = remote
             isConnected = true
+            // Subscribe for pushes; the service replies with current state
+            // immediately, so there is nothing to poll for.
+            try {
+                remote.registerCallback(dataCallback)
+            } catch (e: Exception) {
+                Log.d(TAG, "registerCallback failed: ${e.message}")
+            }
+            mainHandler.post { connectionListeners.toList().forEach { it() } }
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
-            Log.d(TAG, "❌ AIDL disconnected")
+            Log.d(TAG, "AIDL disconnected")
             vehicleService = null
             isConnected = false
+            mainHandler.post { connectionListeners.toList().forEach { it() } }
         }
     }
 
@@ -137,6 +216,11 @@ object VehicleRepository {
     fun disconnect(context: Context) {
         try {
             if (isConnected || isBinding) {
+                try {
+                    vehicleService?.unregisterCallback(dataCallback)
+                } catch (e: Exception) {
+                    Log.d(TAG, "unregisterCallback failed: ${e.message}")
+                }
                 context.unbindService(serviceConnection)
                 vehicleService = null
                 isConnected = false

@@ -5,6 +5,8 @@ import android.content.Intent
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.RemoteCallbackList
+import android.os.RemoteException
 import android.util.Log
 import com.swapnil.smart.aaos.vehicle.IVehicleDataService
 
@@ -24,6 +26,13 @@ class VehicleDataService : Service() {
     private var currentOdometer = 12450f
 
     private lateinit var halManager: VehicleHalManager
+
+    /**
+     * Registered clients. RemoteCallbackList handles the hard parts: it holds
+     * weak death recipients, so a client that crashes is dropped
+     * automatically rather than leaking a Binder proxy.
+     */
+    private val callbacks = RemoteCallbackList<IVehicleDataCallback>()
 
     /** Last message logged per key, so a 1 Hz poll cannot flood logcat. */
     private val lastLogged = HashMap<String, String>()
@@ -146,6 +155,25 @@ class VehicleDataService : Service() {
             return -1f
         }
 
+        override fun registerCallback(callback: IVehicleDataCallback?) {
+            if (callback == null) return
+            callbacks.register(callback)
+            Log.d(TAG, "Client registered for push updates")
+            // Send current state straight away so the client never polls for
+            // its initial values.
+            try {
+                pushTo(callback)
+            } catch (e: RemoteException) {
+                Log.d(TAG, "Initial push failed: ${e.message}")
+            }
+        }
+
+        override fun unregisterCallback(callback: IVehicleDataCallback?) {
+            if (callback == null) return
+            callbacks.unregister(callback)
+            Log.d(TAG, "Client unregistered")
+        }
+
         override fun simulateDriving(
             speedKmh: Float,
             rpm: Float,
@@ -158,6 +186,7 @@ class VehicleDataService : Service() {
             currentGear = "D"
             engineOn = true
             currentOdometer += 0.1f
+            broadcast()
         }
 
         override fun simulateParked() {
@@ -166,6 +195,40 @@ class VehicleDataService : Service() {
             currentRpm = 800f
             currentGear = "P"
             engineOn = true
+            broadcast()
+        }
+    }
+
+    /** Pushes current state to one client. */
+    private fun pushTo(callback: IVehicleDataCallback) {
+        callback.onVehicleData(
+            binder.speed,
+            binder.rpm,
+            binder.fuelLevel,
+            binder.gear,
+            binder.isEngineOn,
+            binder.odometer
+        )
+    }
+
+    /**
+     * Fans current state out to every registered client. Called from the VHAL
+     * event callback and whenever a simulated value changes - never on a
+     * timer, so an idle vehicle produces no traffic at all.
+     */
+    private fun broadcast() {
+        val n = callbacks.beginBroadcast()
+        try {
+            for (i in 0 until n) {
+                try {
+                    pushTo(callbacks.getBroadcastItem(i))
+                } catch (e: RemoteException) {
+                    // Client died; RemoteCallbackList will evict it.
+                    Log.d(TAG, "Broadcast to a client failed: ${e.message}")
+                }
+            }
+        } finally {
+            callbacks.finishBroadcast()
         }
     }
 
@@ -173,6 +236,10 @@ class VehicleDataService : Service() {
         super.onCreate()
         Log.d(TAG, "VehicleDataService created")
         halManager = VehicleHalManager(this)
+
+        // Subscribe to the VHAL and forward each event to our clients, rather
+        // than having them poll us and us poll getProperty().
+        halManager.startSubscriptions { broadcast() }
         // The car service connection settles a moment after process start, so
         // give it a beat before reporting which properties are genuinely live.
         // Read it with: adb logcat -s SmartAAOS_AIDL:D SmartAAOS_VHAL:D
@@ -192,6 +259,7 @@ class VehicleDataService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        callbacks.kill()
         halManager.release()
         Log.d(TAG, "VehicleDataService destroyed")
     }

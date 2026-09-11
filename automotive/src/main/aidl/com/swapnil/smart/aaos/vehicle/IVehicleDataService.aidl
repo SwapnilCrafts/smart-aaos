@@ -1,7 +1,18 @@
 // IVehicleDataService.aidl
 package com.swapnil.smart.aaos.vehicle;
 
+import com.swapnil.smart.aaos.vehicle.IVehicleDataCallback;
+
 interface IVehicleDataService {
+
+    /**
+     * Subscribe to pushed updates. The service sends the current state
+     * immediately on registration, so a client never has to poll for its
+     * initial values.
+     */
+    void registerCallback(IVehicleDataCallback callback);
+
+    void unregisterCallback(IVehicleDataCallback callback);
 
     float getSpeed();
 

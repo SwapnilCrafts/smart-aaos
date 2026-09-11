@@ -1,36 +1,40 @@
 package com.swapnil.smart.aaos.utils
 
 
-import android.os.Handler
-import android.os.Looper
 import com.swapnil.smart.aaos.utils.Severity
 import com.swapnil.smart.aaos.utils.VehicleAlert
 import com.swapnil.smart.aaos.vehicle.VehicleRepository
 
 object AlertRepository {
 
-    private val handler = Handler(Looper.getMainLooper())
-
     var currentAlert: VehicleAlert? = null
         private set
 
-    private var manualAlert: VehicleAlert? = null // 🔥 NEW
+    private var manualAlert: VehicleAlert? = null
 
     private val listeners = mutableListOf<() -> Unit>()
 
-    private val runnable = object : Runnable {
-        override fun run() {
-            evaluateAlerts()
-            handler.postDelayed(this, 1000)
-        }
-    }
-
     private var isRunning = false
 
+    /** Re-evaluate whenever the vehicle pushes new state. */
+    private val onVehicleData: () -> Unit = { evaluateAlerts() }
+
+    /**
+     * Starts evaluating alerts. Driven by [VehicleRepository]'s push updates
+     * rather than a 1 Hz Handler loop - thresholds can only be crossed when a
+     * value actually changes, so a timer was pure overhead. Idempotent.
+     */
     fun start() {
         if (isRunning) return
         isRunning = true
-        handler.post(runnable)
+        VehicleRepository.observe(onVehicleData)
+        evaluateAlerts()
+    }
+
+    fun stop() {
+        if (!isRunning) return
+        isRunning = false
+        VehicleRepository.removeObserver(onVehicleData)
     }
 
     private fun evaluateAlerts() {
@@ -45,9 +49,10 @@ object AlertRepository {
         }
 
         // 🔥 PRIORITY 2: AUTO ALERT
-        val speed = VehicleRepository.getSpeed()
-        val rpm = VehicleRepository.getRpm()
-        val fuel = VehicleRepository.getFuel()
+        val snapshot = VehicleRepository.snapshot
+        val speed = snapshot.speedKmh
+        val rpm = snapshot.rpm
+        val fuel = snapshot.fuelPercent
 
         val newAlert = when {
             speed > 100 -> VehicleAlert("Overspeed!", Severity.HIGH)
@@ -72,10 +77,17 @@ object AlertRepository {
 
     fun clearManualAlert() {
         manualAlert = null
+        // Re-derive from real values now; nothing else will until the vehicle
+        // pushes its next update.
+        evaluateAlerts()
     }
 
     fun observe(listener: () -> Unit) {
         listeners.add(listener)
+    }
+
+    fun removeObserver(listener: () -> Unit) {
+        listeners.remove(listener)
     }
 
     private fun notifyListeners() {

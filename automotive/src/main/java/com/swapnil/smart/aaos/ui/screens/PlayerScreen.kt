@@ -90,7 +90,7 @@ class PlayerScreen(
             mediaController?.transportControls?.pause()
         }
         NavigationCallback.onNext = {
-            if (VehicleRepository.getSpeed() <= 2f) {
+            if (VehicleRepository.snapshot.speedKmh <= 2f) {
                 mediaController?.transportControls?.skipToNext()
             }
         }
@@ -173,7 +173,7 @@ class PlayerScreen(
         val nextAction = Action.Builder()
             .setTitle("Next")
             .setOnClickListener {
-                if (VehicleRepository.getSpeed() <= 2f) {
+                if (VehicleRepository.snapshot.speedKmh <= 2f) {
                     val idx = SongRepository.songs.indexOfFirst { it.id == song.id }
                     val nextIdx = (idx + 1) % SongRepository.songs.size
                     song = SongRepository.songs[nextIdx]
@@ -196,7 +196,7 @@ class PlayerScreen(
                 ).build()
             )
             .setOnClickListener {
-                if (VehicleRepository.getSpeed() <= 2f) {
+                if (VehicleRepository.snapshot.speedKmh <= 2f) {
                     val idx = SongRepository.songs.indexOfFirst { it.id == song.id }
                     val prevIdx = if (idx > 0) idx - 1 else SongRepository.songs.size - 1
                     song = SongRepository.songs[prevIdx]
@@ -211,11 +211,11 @@ class PlayerScreen(
         // Drive / Park action
         val driveParkAction = Action.Builder()
             .setTitle(
-                if (VehicleRepository.getSpeed() > 2f) "Park" else "Drive"
+                if (VehicleRepository.snapshot.speedKmh > 2f) "Park" else "Drive"
             )
             .setOnClickListener {
                 try {
-                    if (VehicleRepository.getSpeed() > 2f) VehicleRepository.simulateParked()
+                    if (VehicleRepository.snapshot.speedKmh > 2f) VehicleRepository.simulateParked()
                     else VehicleRepository.simulateDriving()
                 } catch (_: Exception) {}
                 updateCarMovement()

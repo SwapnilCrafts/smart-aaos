@@ -44,10 +44,45 @@ class VehicleHalManager(context: Context) {
 
         /** Driver seat on a left-hand-drive vehicle. */
         private const val AREA_DRIVER_SEAT = VehicleAreaSeat.SEAT_ROW_1_LEFT
+
+        /**
+         * Properties to subscribe to, with the requested rate.
+         *
+         * CONTINUOUS properties take a sample rate (speed and RPM are capped
+         * at 10 Hz by their config, fuel and battery at 100 Hz);
+         * SENSOR_RATE_ONCHANGE is the correct rate for ON_CHANGE properties
+         * such as gear and ignition. Entries the app lacks permission for are
+         * skipped by isSupported(), so this table can list everything the app
+         * would like without failing.
+         */
+        private val SUBSCRIPTIONS: List<Pair<Int, Float>> = listOf(
+            VehiclePropertyIds.PERF_VEHICLE_SPEED to CarPropertyManager.SENSOR_RATE_UI,
+            VehiclePropertyIds.ENGINE_RPM to CarPropertyManager.SENSOR_RATE_UI,
+            VehiclePropertyIds.FUEL_LEVEL to CarPropertyManager.SENSOR_RATE_NORMAL,
+            VehiclePropertyIds.EV_BATTERY_LEVEL to CarPropertyManager.SENSOR_RATE_NORMAL,
+            VehiclePropertyIds.PERF_ODOMETER to CarPropertyManager.SENSOR_RATE_NORMAL,
+            VehiclePropertyIds.GEAR_SELECTION to CarPropertyManager.SENSOR_RATE_ONCHANGE,
+            VehiclePropertyIds.CURRENT_GEAR to CarPropertyManager.SENSOR_RATE_ONCHANGE,
+            VehiclePropertyIds.IGNITION_STATE to CarPropertyManager.SENSOR_RATE_ONCHANGE,
+            VehiclePropertyIds.PARKING_BRAKE_ON to CarPropertyManager.SENSOR_RATE_ONCHANGE
+        )
     }
 
     private var car: Car? = null
     private var propertyManager: CarPropertyManager? = null
+
+    /**
+     * Latest value pushed by the VHAL, keyed by property and area.
+     *
+     * Reads prefer this over a fresh getProperty() call: it is the subscribed
+     * value, and it is the only way to observe anything injected with
+     * `cmd car_service inject-vhal-event` - injection feeds the property event
+     * stream, not the stored value getProperty() returns.
+     */
+    private val latest = ConcurrentHashMap<Long, Any>()
+
+    private var eventCallback: CarPropertyManager.CarPropertyEventCallback? = null
+    private var onEvent: (() -> Unit)? = null
 
     /**
      * Per-property read permission / support verdict.
@@ -138,7 +173,13 @@ class VehicleHalManager(context: Context) {
         return supported
     }
 
+    private fun cacheKey(propertyId: Int, areaId: Int): Long =
+        (propertyId.toLong() shl 32) or (areaId.toLong() and 0xFFFFFFFFL)
+
     private fun readValue(propertyId: Int, areaId: Int = AREA_GLOBAL): Any? {
+        // Subscribed value first; fall back to a direct read until the first
+        // event arrives (or when the subscription could not be established).
+        latest[cacheKey(propertyId, areaId)]?.let { return it }
         if (!isSupported(propertyId)) return null
         val pm = propertyManager ?: return null
         return try {
@@ -287,6 +328,66 @@ class VehicleHalManager(context: Context) {
     }
 
     /**
+     * Subscribes to every property this app is allowed to read, instead of
+     * polling getProperty() on a timer. This is how production code consumes
+     * CONTINUOUS properties: the VHAL pushes at the requested rate and the
+     * framework delivers only real changes for ON_CHANGE properties.
+     *
+     * [onEvent] fires whenever a value arrives, so callers can forward the new
+     * state instead of asking for it. Safe to call repeatedly.
+     */
+    fun startSubscriptions(onEvent: () -> Unit) {
+        ensureConnected()
+        val pm = propertyManager ?: run {
+            Log.d(TAG, "No car service - cannot subscribe, values stay simulated")
+            return
+        }
+        if (eventCallback != null) return
+        this.onEvent = onEvent
+
+        val callback = object : CarPropertyManager.CarPropertyEventCallback {
+            override fun onChangeEvent(value: CarPropertyValue<*>) {
+                if (value.status != CarPropertyValue.STATUS_AVAILABLE) return
+                val payload = value.value ?: return
+                latest[cacheKey(value.propertyId, value.areaId)] = payload
+                this@VehicleHalManager.onEvent?.invoke()
+            }
+
+            override fun onErrorEvent(propertyId: Int, areaId: Int) {
+                Log.d(TAG, "Property error: id=$propertyId area=$areaId")
+            }
+        }
+        eventCallback = callback
+
+        var subscribed = 0
+        SUBSCRIPTIONS.forEach { (propertyId, rateHz) ->
+            if (!isSupported(propertyId)) return@forEach
+            val ok = try {
+                pm.registerCallback(callback, propertyId, rateHz)
+            } catch (e: Exception) {
+                Log.d(TAG, "registerCallback($propertyId) failed: ${e.message}")
+                false
+            }
+            if (ok) subscribed++
+            Log.d(TAG, "subscribe $propertyId @ ${rateHz}Hz -> $ok")
+        }
+        Log.d(TAG, "Subscribed to $subscribed of ${SUBSCRIPTIONS.size} properties")
+    }
+
+    fun stopSubscriptions() {
+        val pm = propertyManager
+        val callback = eventCallback ?: return
+        try {
+            pm?.unregisterCallback(callback)
+        } catch (e: Exception) {
+            Log.d(TAG, "unregisterCallback failed: ${e.message}")
+        }
+        eventCallback = null
+        onEvent = null
+        latest.clear()
+    }
+
+    /**
      * Logs which properties this install can actually read. Handy on the
      * emulator to see at a glance what is live VHAL vs. simulated fallback.
      */
@@ -319,6 +420,7 @@ class VehicleHalManager(context: Context) {
     }
 
     fun release() {
+        stopSubscriptions()
         try {
             car?.disconnect()
             car = null

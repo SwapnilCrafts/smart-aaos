@@ -45,29 +45,40 @@ property at startup.
 
 ## Architecture
 
+Vehicle data flows **one way, by push** — nothing polls.
+
 ```
-Car screen (Car App Library templates)
-    |
-    |  TabTemplate: Drive / Music / Go / Info
-    v
-Screens ---- observe LiveData ----> VehicleViewModel  (1 Hz poll)
-    |                                     |
-    |                                     v
-    |                            VehicleRepository
-    |                                     |
-    |                          AIDL: IVehicleDataService
-    |                                     |
-    |                            VehicleDataService
-    |                              |            |
-    |                     VehicleHalManager   simulated fallback
-    |                              |
-    |                     CarPropertyManager -> CarService -> VHAL
-    v
-SmartMusicService (MediaBrowserServiceCompat + MediaSessionCompat)
-    |
-    v
-ExoPlayer / Media3 -> car speakers
+                VHAL  (vehicle hardware / emulator)
+                  |
+                  |  property event
+                  v
+         CarPropertyManager.registerCallback
+                  |                                VehicleHalManager
+                  v
+         VehicleDataService  --- simulated fallback for blocked properties
+                  |
+                  |  IVehicleDataCallback  (oneway AIDL)
+                  v
+         VehicleRepository   (VehicleSnapshot + listeners)
+                  |
+                  v
+          VehicleViewModel   (LiveData)
+                  |
+                  v
+   Screens  (Car App Library templates)
+            TabTemplate: Drive / Music / Go / Info
+
+   Media path, independent of the above:
+
+   SmartMusicService (MediaBrowserServiceCompat + MediaSessionCompat)
+                  |
+                  v
+   ExoPlayer / Media3  ->  car speakers
 ```
+
+Requests still travel the other way as plain AIDL calls — vehicle info
+(`getMake`, `getVin`), and the simulation hooks used by the debug harness.
+
 
 Two modules, same `applicationId`:
 
@@ -190,7 +201,7 @@ More commands, including MediaStore on a multi-user head unit, are in
 - [x] Surface-rendered map with safe-area insets and back handling
 - [x] Navigation hand-off to the platform maps app
 - [x] Simulation harness for faults and alerts
-- [ ] `CarPropertyManager.registerCallback` subscriptions instead of polling
+- [x] `CarPropertyManager.registerCallback` subscriptions instead of polling
 - [ ] `CarAudioManager`: audio zones and volume groups
 - [ ] Gauges on `GridTemplate` for legibility
 - [ ] Privileged system app install, for real speed / RPM / fuel

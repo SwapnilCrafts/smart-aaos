@@ -155,6 +155,21 @@ injected data. To exercise injected values you must subscribe with
 `CarPropertyManager.registerCallback` — which is how production code reads
 `CONTINUOUS` properties anyway (`PERF_VEHICLE_SPEED` supports 1–10 Hz).
 
+**Confirmed.** After switching this app from polling to
+`registerCallback(callback, propertyId, rateHz)`, an injected gear change
+reached the UI for the first time:
+
+```bash
+adb shell cmd car_service inject-vhal-event GEAR_SELECTION 0 1   # NEUTRAL
+# app log:  getGear (VHAL): P  ->  getGear (VHAL): N
+```
+
+Use `SENSOR_RATE_ONCHANGE` (0 Hz) for `ON_CHANGE` properties and a real rate
+for `CONTINUOUS` ones. `registerCallback` returns `false` rather than throwing
+when a property is not permitted, so a subscription table can list everything
+the app would like and let the unpermitted entries fail quietly - 4 of 9
+subscribe on this emulator.
+
 Note `inject-vhal-event` accepts a `SCREAMING_SNAKE_CASE` name, while
 `inject-continuous-events` requires a numeric property ID.
 
@@ -191,6 +206,13 @@ during development.
 **Conclusion.** Vehicle-data injection has side effects beyond your own
 app: the platform consumes the same events. Worth knowing before blaming
 your own code for a distraction lockout.
+
+**Sharper than expected:** speed is not required. Injecting *any* non-PARK
+gear at zero speed is enough - `CarDrivingStateService` moves to `IDLING`
+(state `1`), whose baseline configuration on this image is `Requires DO? true`,
+and the entire app is replaced by "You can't use this feature while driving".
+Testing a gear change and testing the UI are therefore mutually exclusive
+unless UX restrictions are disabled first.
 
 ---
 
