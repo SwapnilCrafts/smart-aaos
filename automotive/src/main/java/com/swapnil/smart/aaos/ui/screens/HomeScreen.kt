@@ -15,7 +15,6 @@ import androidx.car.app.model.TabTemplate
 import androidx.car.app.model.Template
 import androidx.core.graphics.drawable.IconCompat
 import com.swapnil.smart.aaos.media.SongRepository
-import com.swapnil.smart.aaos.ui.GaugeDrawer
 import com.swapnil.smart.aaos.ui.NavigationCallback
 import com.swapnil.smart.aaos.ui.AppIcons
 import com.swapnil.smart.aaos.utils.AlertRepository
@@ -167,31 +166,21 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
                     .addText(String.format("Total: %.1f km", odometer))
                     .build()
             )
-            .build()
-
-        val gaugeList = ItemList.Builder()
             .addItem(
                 Row.Builder()
-                    .setTitle("Speed  ·  ${speed.toInt()} km/h")
-                    .setImage(CarIcon.Builder(IconCompat.createWithBitmap(
-                        GaugeDrawer.drawSpeedDial(speed)
-                    )).build())
-                    .build()
-            )
-            .addItem(
-                Row.Builder()
-                    .setTitle("Engine RPM  ·  ${rpm.toInt()}")
-                    .setImage(CarIcon.Builder(IconCompat.createWithBitmap(
-                        GaugeDrawer.drawRpmArc(rpm)
-                    )).build())
-                    .build()
-            )
-            .addItem(
-                Row.Builder()
-                    .setTitle("Fuel Level")
-                    .setImage(CarIcon.Builder(IconCompat.createWithBitmap(
-                        GaugeDrawer.drawFuelBar(fuel)
-                    )).build())
+                    .setTitle("Live Gauges")
+                    .addText(
+                        String.format(
+                            Locale.US, "%d km/h  ·  %d rpm  ·  %d%% fuel",
+                            speed.toInt(), rpm.toInt(), fuel.toInt()
+                        )
+                    )
+                    .addText(
+                        if (isMoving) "Park to open the cluster" else "Open the full cluster"
+                    )
+                    .setOnClickListener {
+                        if (!isMoving) screenManager.push(DashboardScreen(carContext))
+                    }
                     .build()
             )
             .build()
@@ -199,10 +188,12 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
         return ListTemplate.Builder()
             .setTitle("Drive")
             .setHeaderAction(Action.APP_ICON)
-            .addSectionedList(SectionedItemList.create(statusList, "Status"))
-            .addSectionedList(SectionedItemList.create(gaugeList, "Live Gauges"))
+            // One section, not two: the host will not split a sectioned list
+            // across scroll pages, so a second section left a large gap.
+            .setSingleList(statusList)
             .build()
     }
+
 
     private fun buildMusicTab(isMoving: Boolean): Template {
         val listBuilder = ItemList.Builder()

@@ -4,16 +4,29 @@ import androidx.car.app.CarContext
 import androidx.car.app.Screen
 import androidx.car.app.model.Action
 import androidx.car.app.model.CarIcon
+import androidx.car.app.model.GridItem
+import androidx.car.app.model.GridTemplate
 import androidx.car.app.model.ItemList
-import androidx.car.app.model.ListTemplate
-import androidx.car.app.model.Row
-import androidx.car.app.model.SectionedItemList
 import androidx.car.app.model.Template
 import androidx.core.graphics.drawable.IconCompat
 import com.swapnil.smart.aaos.ui.GaugeDrawer
 import com.swapnil.smart.aaos.viewmodel.CarViewModelStore
 import com.swapnil.smart.aaos.viewmodel.VehicleViewModel
+import java.util.Locale
 
+/**
+ * Full gauge cluster.
+ *
+ * Uses [GridTemplate] rather than [androidx.car.app.model.ListTemplate]
+ * because `Row.setImage()` is an *icon* slot - the host scales whatever you
+ * give it down to roughly 40 dp, which turned [GaugeDrawer]'s 360x360 dials
+ * into unreadable specks. Grid items with `IMAGE_TYPE_LARGE` render the
+ * bitmaps at a size where the needle, arc and bar segments are actually
+ * legible.
+ *
+ * Six gauges is also the practical ceiling for a grid, which happens to be
+ * exactly what a cluster needs.
+ */
 class DashboardScreen(carContext: CarContext) : Screen(carContext) {
 
     private val viewModel = CarViewModelStore.get(VehicleViewModel::class.java)
@@ -22,149 +35,112 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
     private var lastRpm = Float.MIN_VALUE
     private var lastFuel = Float.MIN_VALUE
     private var lastGear = ""
-    private var lastBattery = Float.MIN_VALUE
+    private var lastEngineOn: Boolean? = null
+    private var lastConnected: Boolean? = null
+    private var lastHasAlert: Boolean? = null
 
     init {
-        // Invalidate only on actual value change (avoids constant host rebuilds
-        // that reset list scroll). The gauges re-render when a value moves.
+        // Invalidate only on an actual value change. The ViewModel polls every
+        // second; rebuilding the template each tick makes the host re-render
+        // needlessly and resets scroll position.
         viewModel.speed.observe(this) { if (it != lastSpeed) { lastSpeed = it; invalidate() } }
         viewModel.rpm.observe(this) { if (it != lastRpm) { lastRpm = it; invalidate() } }
         viewModel.fuel.observe(this) { if (it != lastFuel) { lastFuel = it; invalidate() } }
         viewModel.gear.observe(this) { if (it != lastGear) { lastGear = it ?: ""; invalidate() } }
-        viewModel.engineOn.observe(this) { invalidate() }
-        viewModel.isConnected.observe(this) { invalidate() }
-        viewModel.currentAlert.observe(this) { invalidate() }
-        viewModel.odometer.observe(this) { invalidate() }
+        viewModel.engineOn.observe(this) {
+            if (it != lastEngineOn) { lastEngineOn = it; invalidate() }
+        }
+        viewModel.isConnected.observe(this) {
+            if (it != lastConnected) { lastConnected = it; invalidate() }
+        }
+        viewModel.currentAlert.observe(this) {
+            val has = it != null
+            if (has != lastHasAlert) { lastHasAlert = has; invalidate() }
+        }
     }
 
     override fun onGetTemplate(): Template {
         if (viewModel.isConnected.value != true) {
-            return ListTemplate.Builder()
+            return GridTemplate.Builder()
                 .setTitle("Vehicle Dashboard")
                 .setHeaderAction(Action.BACK)
-                .addSectionedList(
-                    SectionedItemList.create(
-                        ItemList.Builder()
-                            .addItem(
-                                Row.Builder()
-                                    .setTitle("Connecting to Vehicle Service")
-                                    .addText("Please wait…")
-                                    .build()
-                            )
-                            .build(),
-                        "Status"
-                    )
-                )
+                .setLoading(true)
                 .build()
         }
 
-        val speed     = viewModel.speed.value ?: 0f
-        val rpm       = viewModel.rpm.value ?: 0f
-        val fuel      = viewModel.fuel.value ?: 0f
-        val gear      = viewModel.gear.value ?: "P"
-        val engineOn  = viewModel.engineOn.value ?: false
-        val odometer  = viewModel.odometer.value ?: 0f
-        val battery   = 80f // battery level not exposed on emulator VHAL
-        val hasAlert  = viewModel.currentAlert.value != null
-        val rangeKm   = (56f * (fuel / 100f)).toInt() * 10
+        val speed = viewModel.speed.value ?: 0f
+        val rpm = viewModel.rpm.value ?: 0f
+        val fuel = viewModel.fuel.value ?: 0f
+        val gear = viewModel.gear.value ?: "P"
+        val engineOn = viewModel.engineOn.value ?: false
+        val odometer = viewModel.odometer.value ?: 0f
+        val hasAlert = viewModel.currentAlert.value != null
 
-        return ListTemplate.Builder()
-            .setTitle("Vehicle Dashboard")
-            .setHeaderAction(Action.BACK)
-            .addSectionedList(
-                SectionedItemList.create(
-                    ItemList.Builder()
-                        .addItem(
-                            Row.Builder()
-                                .setTitle("Speed  ·  ${speed.toInt()} km/h  ·  Gear $gear")
-                                .addText(engineStatusText(hasAlert))
-                                .setImage(CarIcon.Builder(IconCompat.createWithBitmap(
-                                    GaugeDrawer.drawSpeedDial(speed)
-                                )).build())
-                                .build()
-                        )
-                        .build(),
-                    "Speed"
+        // Battery level needs CAR_ENERGY (signature|privileged), so it is not
+        // readable by a normally installed app - see FINDINGS.md.
+        val battery = 80f
+        val rangeKm = (56f * (fuel / 100f)).toInt() * 10
+
+        val gauges = ItemList.Builder()
+            .addItem(
+                gauge(
+                    "Speed",
+                    String.format(Locale.US, "%d km/h", speed.toInt()),
+                    GaugeDrawer.drawSpeedDial(speed)
                 )
             )
-            .addSectionedList(
-                SectionedItemList.create(
-                    ItemList.Builder()
-                        .addItem(
-                            Row.Builder()
-                                .setTitle("Engine RPM  ·  ${rpm.toInt()}")
-                                .setImage(CarIcon.Builder(IconCompat.createWithBitmap(
-                                    GaugeDrawer.drawRpmArc(rpm)
-                                )).build())
-                                .build()
-                        )
-                        .addItem(
-                            Row.Builder()
-                                .setTitle("Transmission & Engine")
-                                .setImage(CarIcon.Builder(IconCompat.createWithBitmap(
-                                    GaugeDrawer.drawGearStrip(gear, engineOn, hasAlert)
-                                )).build())
-                                .build()
-                        )
-                        .build(),
-                    "Engine"
+            .addItem(
+                gauge(
+                    "Engine RPM",
+                    String.format(Locale.US, "%d rpm", rpm.toInt()),
+                    GaugeDrawer.drawRpmArc(rpm)
                 )
             )
-            .addSectionedList(
-                SectionedItemList.create(
-                    ItemList.Builder()
-                        .addItem(
-                            Row.Builder()
-                                .setTitle("Fuel Level")
-                                .addText("Estimated range ≈ ${rangeKm} km")
-                                .setImage(CarIcon.Builder(IconCompat.createWithBitmap(
-                                    GaugeDrawer.drawFuelBar(fuel)
-                                )).build())
-                                .build()
-                        )
-                        .addItem(
-                            Row.Builder()
-                                .setTitle("Battery (simulated)")
-                                .setImage(CarIcon.Builder(IconCompat.createWithBitmap(
-                                    GaugeDrawer.drawBatteryBar(battery)
-                                )).build())
-                                .build()
-                        )
-                        .build(),
-                    "Energy"
+            .addItem(
+                gauge(
+                    "Fuel",
+                    String.format(Locale.US, "%d%% · ~%d km", fuel.toInt(), rangeKm),
+                    GaugeDrawer.drawFuelBar(fuel)
                 )
             )
-            .addSectionedList(
-                SectionedItemList.create(
-                    ItemList.Builder()
-                        .addItem(
-                            Row.Builder()
-                                .setTitle("Odometer")
-                                .addText(String.format("Total: %.1f km", odometer))
-                                .addText(if (engineOn) "Engine ON" else "Engine OFF")
-                                .build()
-                        )
-                        .apply {
-                            if (hasAlert) {
-                                val alert = viewModel.currentAlert.value
-                                if (alert != null) {
-                                    addItem(
-                                        Row.Builder()
-                                            .setTitle("Active Alert: ${alert.message}")
-                                            .addText("Severity: ${alert.severity.name}")
-                                            .build()
-                                    )
-                                }
-                            }
-                        }
-                        .build(),
-                    "Vehicle"
+            .addItem(
+                gauge(
+                    "Gear $gear",
+                    if (engineOn) "Engine ON" else "Engine OFF",
+                    GaugeDrawer.drawGearStrip(gear, engineOn, hasAlert)
+                )
+            )
+            .addItem(
+                gauge(
+                    "Battery",
+                    "${battery.toInt()}% · simulated",
+                    GaugeDrawer.drawBatteryBar(battery)
+                )
+            )
+            .addItem(
+                gauge(
+                    "Odometer",
+                    String.format(Locale.US, "%.1f km", odometer),
+                    GaugeDrawer.drawFuelBar(100f)
                 )
             )
             .build()
+
+        return GridTemplate.Builder()
+            .setTitle(if (hasAlert) "Dashboard  ·  Check Required" else "Vehicle Dashboard")
+            .setHeaderAction(Action.BACK)
+            .setItemSize(GridTemplate.ITEM_SIZE_LARGE)
+            .setSingleList(gauges)
+            .build()
     }
 
-    private fun engineStatusText(hasAlert: Boolean): String {
-        return if (hasAlert) "⚠ Check Required" else "● All Systems Normal"
-    }
+    private fun gauge(title: String, value: String, bitmap: android.graphics.Bitmap) =
+        GridItem.Builder()
+            .setTitle(title)
+            .setText(value)
+            .setImage(
+                CarIcon.Builder(IconCompat.createWithBitmap(bitmap)).build(),
+                GridItem.IMAGE_TYPE_LARGE
+            )
+            .build()
 }
