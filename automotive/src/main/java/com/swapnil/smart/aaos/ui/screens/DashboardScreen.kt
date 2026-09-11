@@ -139,7 +139,9 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
             .setTitle(title)
             .setText(value)
             .setImage(
-                CarIcon.Builder(IconCompat.createWithBitmap(bitmap)).build(),
+                CarIcon.Builder(
+                    IconCompat.createWithBitmap(GaugeDrawer.squared(bitmap))
+                ).build(),
                 GridItem.IMAGE_TYPE_LARGE
             )
             .build()

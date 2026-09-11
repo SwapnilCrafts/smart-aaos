@@ -192,7 +192,7 @@ object GaugeDrawer {
         val inset = size * 0.02f
         drawSegmentedBar(c, inset, h * 0.30f, size - inset, h * 0.70f, frac, color, size * 0.03f)
         c.drawText(
-            "Fuel  ${fuel.toInt()}%", size * 0.06f, h * 0.85f,
+            "Fuel  ${fuel.toInt()}%", size * 0.5f, h * 0.85f,
             textPaint(Color.WHITE, h * 0.55f)
         )
         c.drawCircle(size - size * 0.05f, h * 0.50f, size * 0.02f, paint(color, Paint.Style.FILL))
@@ -209,7 +209,7 @@ object GaugeDrawer {
         val inset = size * 0.02f
         drawSegmentedBar(c, inset, h * 0.30f, size - inset, h * 0.70f, frac, color, size * 0.03f)
         c.drawText(
-            "Battery  ${level.toInt()}%", size * 0.06f, h * 0.85f,
+            "Battery  ${level.toInt()}%", size * 0.5f, h * 0.85f,
             textPaint(Color.WHITE, h * 0.55f)
         )
         c.drawCircle(size - size * 0.05f, h * 0.50f, size * 0.02f, paint(color, Paint.Style.FILL))
@@ -260,5 +260,26 @@ object GaugeDrawer {
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             textAlign = Paint.Align.CENTER
         }
+    }
+
+    /**
+     * Centres a wide gauge bitmap inside a square canvas.
+     *
+     * The bar gauges are deliberately wide and short (340x61). A GridTemplate
+     * image slot is square, so handing it a 5.6:1 bitmap wastes the slot and
+     * distorts the result. Scaling to fit the width and padding vertically
+     * keeps the bar's proportions while filling the square.
+     */
+    fun squared(source: Bitmap, size: Int = 360): Bitmap {
+        if (source.width == source.height) return source
+        val out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val c = Canvas(out)
+        val scale = size.toFloat() / source.width
+        val h = source.height * scale
+        val dst = android.graphics.RectF(
+            0f, (size - h) / 2f, size.toFloat(), (size + h) / 2f
+        )
+        c.drawBitmap(source, null, dst, Paint(Paint.FILTER_BITMAP_FLAG))
+        return out
     }
 }
