@@ -11,6 +11,8 @@ data class VehicleSnapshot(
     val speedKmh: Float = 0f,
     val rpm: Float = 0f,
     val fuelPercent: Float = 0f,
+    /** EV_BATTERY_LEVEL percentage, or -1 when the property is unreadable. */
+    val batteryPercent: Float = -1f,
     val gear: String = "P",
     val engineOn: Boolean = false,
     val odometerKm: Float = 0f
@@ -49,6 +51,7 @@ object VehicleRepository {
             speedKmh: Float,
             rpm: Float,
             fuelPercent: Float,
+            batteryPercent: Float,
             gear: String?,
             engineOn: Boolean,
             odometerKm: Float
@@ -57,6 +60,7 @@ object VehicleRepository {
                 speedKmh = speedKmh,
                 rpm = rpm,
                 fuelPercent = fuelPercent,
+                batteryPercent = batteryPercent,
                 gear = gear ?: "P",
                 engineOn = engineOn,
                 odometerKm = odometerKm

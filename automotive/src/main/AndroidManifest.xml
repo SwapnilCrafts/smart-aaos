@@ -20,13 +20,37 @@
         android:required="true" />
 
 
-    <!-- Vehicle data permissions -->
-    <uses-permission android:name="android.car.permission.CAR_SPEED" />
-    <uses-permission android:name="android.car.permission.CAR_ENGINE_DETAILED" />
-    <uses-permission android:name="android.car.permission.CAR_ENERGY" />
+    <!--
+      Vehicle data permissions, grouped by protection level as declared by
+      com.android.car.updatable on AAOS API 35. The level decides what the app
+      has to do to actually get the data, so it is worth being explicit:
+
+        normal     -> granted at install, nothing else to do.
+        dangerous  -> runtime permission; must be requested via
+                      CarContext.requestPermissions(). NOTE: on AAOS the driver
+                      is user 10, so an adb grant must pass the user flag
+                      explicitly or it silently targets user 0.
+        privileged -> only granted to apps in /system/priv-app that are also
+                      named in a privapp-permissions allowlist XML. A normal
+                      APK install can never hold these, by design.
+    -->
+
+    <!-- normal: INFO_MAKE / INFO_MODEL / INFO_MODEL_YEAR / INFO_FUEL_CAPACITY -->
     <uses-permission android:name="android.car.permission.CAR_INFO" />
-    <!-- normal permission: gates CURRENT_GEAR / GEAR_SELECTION / IGNITION_STATE -->
+    <!-- normal: CURRENT_GEAR / GEAR_SELECTION / IGNITION_STATE / PARKING_BRAKE_ON -->
     <uses-permission android:name="android.car.permission.CAR_POWERTRAIN" />
+
+    <!-- dangerous: PERF_VEHICLE_SPEED -->
+    <uses-permission android:name="android.car.permission.CAR_SPEED" />
+    <!-- dangerous: FUEL_LEVEL / EV_BATTERY_LEVEL -->
+    <uses-permission android:name="android.car.permission.CAR_ENERGY" />
+
+    <!-- privileged: ENGINE_RPM -->
+    <uses-permission android:name="android.car.permission.CAR_ENGINE_DETAILED" />
+    <!-- privileged: PERF_ODOMETER -->
+    <uses-permission android:name="android.car.permission.CAR_MILEAGE" />
+    <!-- privileged: INFO_VIN -->
+    <uses-permission android:name="android.car.permission.CAR_IDENTIFICATION" />
 
     <!-- Navigation/map template capabilities (car-app 1.7.0) -->
     <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES" />

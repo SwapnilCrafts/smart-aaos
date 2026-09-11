@@ -18,6 +18,7 @@ oneway interface IVehicleDataCallback {
         float speedKmh,
         float rpm,
         float fuelPercent,
+        float batteryPercent,
         String gear,
         boolean engineOn,
         float odometerKm);

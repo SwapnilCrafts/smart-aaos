@@ -15,52 +15,93 @@ taken from documentation — several items contradict what the docs imply.
 **Symptom.** Speed, RPM and fuel always showed simulated values, no matter
 what the code did.
 
-**Verification.**
+I first concluded that all of them were privileged and unreachable. That was
+wrong, and the way it was wrong is the more useful finding: **two of the three
+protection levels look identical from inside the app.** When a permission is
+missing, `CarPropertyManager` does not throw — it reports the property as
+unsupported. So "never asked for a runtime permission" and "can never hold
+this permission" produce the exact same symptom, and it is tempting to assume
+the second.
+
+**Verification.** `pm list permissions` prints names, not levels. The level is
+in `dumpsys`, in the `prot=` field:
 
 ```bash
-adb shell pm list permissions -f | grep -A5 "android.car.permission"
-adb shell dumpsys package <pkg> | sed -n '/install permissions/,/User 0:/p'
+adb shell dumpsys package permissions | grep -A3 'android.car.permission.CAR_SPEED'
+#   sourcePackage=com.android.car.updatable
+#   uid=10162 gids=[] type=0 prot=dangerous
 ```
 
-| Permission | Protection level | Third-party app |
-|---|---|---|
-| `CAR_INFO` | `normal` | granted at install |
-| `CAR_POWERTRAIN` | `normal` | granted at install |
-| `READ_CAR_DISPLAY_UNITS` | `normal` | granted at install |
-| `CAR_SPEED` | not grantable | **blocked** |
-| `CAR_ENERGY` | not grantable | **blocked** |
-| `CAR_ENGINE_DETAILED` | `signature\|privileged` | **blocked** |
-| `CAR_MILEAGE` | `signature\|privileged` | **blocked** |
-| `CAR_IDENTIFICATION` | `signature\|privileged` | **blocked** |
+| Permission | `prot=` | Gates | How the app gets it |
+|---|---|---|---|
+| `CAR_INFO` | `normal` | make, model, year, fuel capacity | granted at install |
+| `CAR_POWERTRAIN` | `normal` | gear, ignition, parking brake | granted at install |
+| `CAR_SPEED` | `dangerous` | `PERF_VEHICLE_SPEED` | **runtime request** |
+| `CAR_ENERGY` | `dangerous` | `FUEL_LEVEL`, `EV_BATTERY_LEVEL` | **runtime request** |
+| `CAR_ENGINE_DETAILED` | `signature\|privileged` | `ENGINE_RPM` | priv-app + allowlist |
+| `CAR_MILEAGE` | `signature\|privileged` | `PERF_ODOMETER` | priv-app + allowlist |
+| `CAR_IDENTIFICATION` | `signature\|privileged` | `INFO_VIN` | priv-app + allowlist |
 
-`adb shell pm grant` does **not** help. For `CAR_POWERTRAIN` it fails
-loudly (`SecurityException: ... is not a changeable permission type`,
-because `normal` permissions are already granted). For `CAR_SPEED` and
-`CAR_ENERGY` it exits 0 and silently does nothing — the permission never
-appears in the package's permission state.
+So speed and fuel level — the two most obviously "vehicle" values in the app —
+are ordinary runtime permissions, no different from location. They were never
+blocked. The manifest declared them and **nothing ever called
+`requestPermissions()`**, so they were never granted.
 
-**Resulting split**, logged by `VehicleHalManager.logAvailability()`:
+### Why the adb grant appeared to do nothing
 
-```
-LIVE VHAL              blocked -> simulated
-GEAR_SELECTION         PERF_VEHICLE_SPEED
-CURRENT_GEAR           ENGINE_RPM
-IGNITION_STATE         FUEL_LEVEL
-PARKING_BRAKE_ON       EV_BATTERY_LEVEL
-INFO_MAKE              PERF_ODOMETER
-INFO_MODEL             INFO_VIN
-INFO_MODEL_YEAR
-INFO_FUEL_CAPACITY
+Earlier I recorded that `pm grant` on `CAR_SPEED` "exits 0 and silently does
+nothing". It exits 0 because it *succeeds* — against the wrong user. AAOS boots
+the driver as user 10, and `pm grant` defaults to user 0:
+
+```bash
+adb shell dumpsys package com.swapnil.smart.aaos | grep -E 'User [0-9]+:|granted='
+#   User 0:                                   <- where the grant landed
+#     android.car.permission.CAR_SPEED: granted=true
+#   User 10:                                  <- where the app actually runs
+#     (CAR_SPEED absent entirely)
 ```
 
-**Conclusion.** A normally installed app can read gear, ignition, parking
-brake and vehicle info. Speed, RPM, fuel, battery, odometer and VIN are
-unreachable by design. An instrument cluster is therefore **not a
-third-party app category** — it requires a privileged system app
-installed to `/system/priv-app/` with a privapp-permissions allowlist.
+The fix is one flag:
 
-Declaring `CAR_POWERTRAIN` is free and worth doing: it turns gear and
-ignition from simulated into live.
+```bash
+adb shell pm grant --user 10 com.swapnil.smart.aaos android.car.permission.CAR_SPEED
+adb shell pm grant --user 10 com.swapnil.smart.aaos android.car.permission.CAR_ENERGY
+```
+
+Four properties went live immediately, with **no change to the system image**:
+
+```
+Availability: PERF_VEHICLE_SPEED   LIVE VHAL      <- was blocked
+Availability: FUEL_LEVEL           LIVE VHAL      <- was blocked
+Availability: EV_BATTERY_LEVEL     LIVE VHAL      <- was blocked
+Availability: INFO_FUEL_CAPACITY   LIVE VHAL
+Availability: GEAR_SELECTION       LIVE VHAL
+Availability: CURRENT_GEAR         LIVE VHAL
+Availability: IGNITION_STATE       LIVE VHAL
+Availability: PARKING_BRAKE_ON     LIVE VHAL
+Availability: INFO_MAKE            LIVE VHAL
+Availability: INFO_MODEL           LIVE VHAL
+Availability: INFO_MODEL_YEAR      LIVE VHAL
+Availability: ENGINE_RPM           blocked -> simulated
+Availability: PERF_ODOMETER        blocked -> simulated
+Availability: INFO_VIN             blocked -> simulated
+```
+
+This is the same user-10 trap that hides MediaStore from the app (finding 8).
+It has now cost me a wrong conclusion twice, in two unrelated subsystems, which
+is a good argument for making `--user 10` the default habit on AAOS rather than
+something to remember.
+
+**Conclusion.** The real boundary is narrower than it looks. A normal install
+can read gear, ignition, parking brake, vehicle info, **speed, fuel and
+battery** — it just has to ask. Only RPM, odometer and VIN genuinely require a
+privileged system app in `/system/priv-app` with a privapp-permissions
+allowlist.
+
+An instrument cluster still is not a third-party app category, but the reason
+is narrower than "the VHAL is closed": the interesting driving values are
+available, and what is withheld is the engine internals and the vehicle's
+identity.
 
 ---
 
@@ -409,9 +450,15 @@ adb shell dumpsys car_service --services CarDrivingStateService
 adb shell dumpsys car_service --services CarUxRestrictionsManagerService
 adb shell cmd car_service enable-uxr false
 
-# permissions
-adb shell pm list permissions -f | grep -A5 android.car.permission
-adb shell dumpsys package <pkg> | grep -A20 "install permissions"
+# permissions: the protection level is the `prot=` field, not in pm list
+adb shell dumpsys package permissions | grep -A3 'android.car.permission.CAR_SPEED'
+adb shell dumpsys package <pkg> | grep -E 'User [0-9]+:|granted='
+
+# grant a runtime car permission -- note the user flag, AAOS drives user 10
+adb shell pm grant --user 10 <pkg> android.car.permission.CAR_SPEED
+
+# install as a privileged system app (needs -writable-system); see tools/
+./tools/install-as-privileged-app.sh
 
 # this app's own availability report
 adb logcat -s SmartAAOS_VHAL:D | grep Availability

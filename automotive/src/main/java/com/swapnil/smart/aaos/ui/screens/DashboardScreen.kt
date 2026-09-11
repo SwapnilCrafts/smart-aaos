@@ -76,9 +76,12 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
         val odometer = viewModel.odometer.value ?: 0f
         val hasAlert = viewModel.currentAlert.value != null
 
-        // Battery level needs CAR_ENERGY (signature|privileged), so it is not
-        // readable by a normally installed app - see FINDINGS.md.
-        val battery = 80f
+        // EV_BATTERY_LEVEL is guarded by CAR_ENERGY, which is
+        // protectionLevel:dangerous - so this is real once the runtime
+        // permission is granted. -1 means the property never reported a value
+        // (the emulator's default profile is a fuel vehicle).
+        val battery = viewModel.battery.value ?: -1f
+        val hasBattery = battery >= 0f
         val rangeKm = (56f * (fuel / 100f)).toInt() * 10
 
         val gauges = ItemList.Builder()
@@ -113,8 +116,8 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
             .addItem(
                 gauge(
                     "Battery",
-                    "${battery.toInt()}% · simulated",
-                    GaugeDrawer.drawBatteryBar(battery)
+                    if (hasBattery) "${battery.toInt()}%" else "not reported",
+                    GaugeDrawer.drawBatteryBar(if (hasBattery) battery else 0f)
                 )
             )
             .addItem(

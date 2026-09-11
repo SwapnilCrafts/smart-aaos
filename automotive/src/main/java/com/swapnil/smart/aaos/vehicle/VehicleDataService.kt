@@ -75,6 +75,22 @@ class VehicleDataService : Service() {
             return currentFuel
         }
 
+        /**
+         * Real EV_BATTERY_LEVEL when CAR_ENERGY is granted. There is no
+         * simulated counterpart to fall back to, so this returns -1 to mean
+         * "unknown" and the UI decides how to present that; inventing a
+         * plausible battery percentage would be worse than admitting it.
+         */
+        override fun getBatteryLevel(): Float {
+            val vhal = halManager.getBatteryLevelFraction()
+            if (vhal != null) {
+                logOnChange("getBatteryLevel", "getBatteryLevel (VHAL): $vhal fraction")
+                return vhal * 100f
+            }
+            logOnChange("getBatteryLevel", "getBatteryLevel: unavailable")
+            return -1f
+        }
+
         override fun getGear(): String {
             val vhal = halManager.getGearString()
             if (vhal != null) {
@@ -205,6 +221,7 @@ class VehicleDataService : Service() {
             binder.speed,
             binder.rpm,
             binder.fuelLevel,
+            binder.batteryLevel,
             binder.gear,
             binder.isEngineOn,
             binder.odometer

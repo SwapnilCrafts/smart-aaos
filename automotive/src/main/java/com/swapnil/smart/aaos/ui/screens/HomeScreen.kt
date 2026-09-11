@@ -22,6 +22,7 @@ import com.swapnil.smart.aaos.utils.AlbumArtLoader
 import com.swapnil.smart.aaos.utils.CarLocationProvider
 import com.swapnil.smart.aaos.utils.VehicleAlert
 import com.swapnil.smart.aaos.vehicle.UxRestrictionsRepository
+import com.swapnil.smart.aaos.vehicle.VehiclePermissions
 import com.swapnil.smart.aaos.vehicle.VehicleRepository
 import com.swapnil.smart.aaos.viewmodel.CarViewModelStore
 import com.swapnil.smart.aaos.viewmodel.VehicleViewModel
@@ -44,6 +45,7 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
         AlertRepository.start()
         UxRestrictionsRepository.start(carContext)
         ensureSongLibrary()
+        ensureVehiclePermissions()
         // Start location here as well as in NavigationScreen so the Go tab can
         // show real distances before the map has ever been opened.
         if (CarLocationProvider.hasPermission(carContext)) {
@@ -81,6 +83,37 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
             if (viewModel.isCarMoving.value != true) {
                 screenManager.push(DashboardScreen(carContext))
             }
+        }
+    }
+
+    /**
+     * CAR_SPEED and CAR_ENERGY are protectionLevel:dangerous, i.e. ordinary
+     * runtime permissions. Without this request they are never granted and the
+     * app reads simulated speed and fuel forever, which is exactly what it did
+     * before: the manifest declared them, nothing ever asked for them.
+     *
+     * Once granted, VehicleHalManager's subscriptions pick the properties up on
+     * the next connection, so the only thing needed here is the ask.
+     */
+    private fun ensureVehiclePermissions() {
+        val missing = VehiclePermissions.missingRuntime(carContext)
+        if (missing.isEmpty()) return
+        try {
+            carContext.requestPermissions(missing) { approved, rejected ->
+                Log.d(
+                    "SmartAAOS_Perms",
+                    "car permissions approved=${approved.map(VehiclePermissions::shortName)} " +
+                        "rejected=${rejected.map(VehiclePermissions::shortName)}"
+                )
+                if (approved.isNotEmpty()) {
+                    // Reconnect so the HAL layer re-evaluates what it can subscribe to.
+                    VehicleRepository.connect(carContext)
+                    invalidate()
+                }
+            }
+        } catch (e: Exception) {
+            // Hosts can refuse to show the dialog unless the app is foregrounded.
+            Log.d("SmartAAOS_Perms", "car permission request unavailable: ${e.message}")
         }
     }
 

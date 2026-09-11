@@ -33,6 +33,10 @@ class VehicleViewModel : ViewModel() {
     private val _fuel = MutableLiveData(0f)
     val fuel: LiveData<Float> = _fuel
 
+    /** EV battery percentage, or -1 when EV_BATTERY_LEVEL is not readable. */
+    private val _battery = MutableLiveData(-1f)
+    val battery: LiveData<Float> = _battery
+
     private val _gear = MutableLiveData("P")
     val gear: LiveData<String> = _gear
 
@@ -103,6 +107,7 @@ class VehicleViewModel : ViewModel() {
         _speed.value = s.speedKmh
         _rpm.value = s.rpm
         _fuel.value = s.fuelPercent
+        _battery.value = s.batteryPercent
         _gear.value = s.gear
         _engineOn.value = s.engineOn
         _odometer.value = s.odometerKm

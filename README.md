@@ -23,19 +23,24 @@ emulator with `cmd car_service get-carpropertyconfig`.
 |---|---|---|
 | Gear, ignition, parking brake | **live VHAL** | `CAR_POWERTRAIN` is `protectionLevel:normal` |
 | Make, model, year, fuel capacity | **live VHAL** | `CAR_INFO` is `normal` |
-| Speed, RPM, fuel, battery, odometer | simulated | `CAR_SPEED` / `CAR_ENERGY` / `CAR_ENGINE_DETAILED` / `CAR_MILEAGE` are `signature\|privileged` |
-| VIN | simulated | `CAR_IDENTIFICATION` is `signature\|privileged` |
+| Speed, fuel, battery | **live VHAL** | `CAR_SPEED` / `CAR_ENERGY` are `dangerous` — a runtime request, like location |
+| RPM, odometer, VIN | simulated | `CAR_ENGINE_DETAILED` / `CAR_MILEAGE` / `CAR_IDENTIFICATION` are `signature\|privileged` |
 
-A normally installed app **cannot** read speed or fuel — by design, not by
-bug. An instrument cluster is a privileged system app in
-`/system/priv-app/` with a privapp-permissions allowlist, not something
-you install from Play. Every getter degrades to a simulated value rather
-than failing, so the UI stays usable either way:
+The middle row is the part worth knowing. I assumed for a long time that
+everything interesting in the VHAL was privileged, because a missing
+permission and an unobtainable one produce the *same* symptom:
+`CarPropertyManager` reports the property as unsupported rather than
+throwing. Speed and fuel were never blocked — the manifest declared them
+and nothing ever called `requestPermissions()`. Only engine internals and
+the vehicle's identity truly require a privileged install.
+
+Every getter degrades to a simulated value rather than failing, so the UI
+stays usable either way:
 
 ```
 getGear (VHAL): P                 <- real
 isEngineOn (VHAL): true           <- real
-getSpeed (simulated): 0.0 km/h    <- blocked, fell back
+getRpm (simulated): 800.0 RPM     <- privileged, fell back
 ```
 
 `VehicleHalManager.logAvailability()` prints the live/blocked split per
@@ -178,9 +183,10 @@ More commands, including MediaStore on a multi-user head unit, are in
   dashboard). A real app declares exactly one category, and a dashboard
   is not a third-party category at all. Kept combined on purpose, to
   cover more of the platform surface in one project.
-- **Speed, RPM and fuel are simulated** and will stay that way until the
-  app is installed as a privileged system app. This is a permission
-  boundary, not a missing feature.
+- **RPM, odometer and VIN are simulated** and will stay that way until the
+  app is installed as a privileged system app (`tools/install-as-privileged-app.sh`).
+  This is a permission boundary, not a missing feature. Speed, fuel and
+  battery are live once the runtime permissions are granted.
 - **The empty band below list screens is a host reserve** of 121 dp,
   measured density-invariant, and cannot be removed from the app. Only
   surface-based templates use the full screen height.
@@ -206,7 +212,10 @@ More commands, including MediaStore on a multi-user head unit, are in
 - [x] Car audio: explicit `AudioAttributes` routing + capability report
       (zones and volume groups are `signature|privileged` — see FINDINGS.md)
 - [ ] Gauges on `GridTemplate` for legibility
-- [ ] Privileged system app install, for real speed / RPM / fuel
+- [x] Runtime car permissions requested properly, making speed / fuel /
+      battery live on a normal install
+- [ ] Privileged system app install, for RPM / odometer / VIN
+      (scripted in `tools/`, blocked on emulator disk space)
 - [ ] Custom vendor VHAL property implemented in AOSP (C++)
 - [ ] Android Auto verification via DHU
 

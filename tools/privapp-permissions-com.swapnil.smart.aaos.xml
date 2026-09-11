@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Privileged permission allowlist for SmartAAOS.
+
+  Since Android 9, being installed in /system/priv-app is NOT by itself enough
+  to hold a signature|privileged permission. The platform also requires the
+  package to be named in an allowlist like this one, installed under
+  /system/etc/permissions (or /product/etc/permissions). If a priv-app requests
+  a privileged permission that is not allowlisted, the permission is simply
+  denied; on a user build with the strict flag set, the device refuses to boot.
+
+  This is the mechanism OEMs use to decide which preinstalled apps may touch
+  which parts of the vehicle - the reason a third-party APK can never read
+  these properties no matter how it is signed or granted.
+
+  Only the three genuinely privileged permissions belong here. CAR_SPEED and
+  CAR_ENERGY are protectionLevel:dangerous and must NOT be listed: they are
+  runtime permissions, requested from the user at run time instead.
+-->
+<permissions>
+    <privapp-permissions package="com.swapnil.smart.aaos">
+        <!-- ENGINE_RPM -->
+        <permission name="android.car.permission.CAR_ENGINE_DETAILED"/>
+        <!-- PERF_ODOMETER -->
+        <permission name="android.car.permission.CAR_MILEAGE"/>
+        <!-- INFO_VIN -->
+        <permission name="android.car.permission.CAR_IDENTIFICATION"/>
+    </privapp-permissions>
+</permissions>

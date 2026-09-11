@@ -24,17 +24,23 @@ import java.util.concurrent.ConcurrentHashMap
  * What a normal third-party install can actually read (verified against the
  * AAOS API 35 emulator with `adb shell cmd car_service get-carpropertyconfig`):
  *
- *   readable — CAR_INFO + CAR_POWERTRAIN are protectionLevel:normal
+ *   free — CAR_INFO + CAR_POWERTRAIN are protectionLevel:normal
  *     INFO_MAKE / INFO_MODEL / INFO_MODEL_YEAR / INFO_FUEL_CAPACITY /
- *     INFO_EV_BATTERY_CAPACITY, GEAR_SELECTION / CURRENT_GEAR, IGNITION_STATE
+ *     INFO_EV_BATTERY_CAPACITY, GEAR_SELECTION / CURRENT_GEAR, IGNITION_STATE,
+ *     PARKING_BRAKE_ON
  *
- *   NOT readable — signature|privileged, cannot be adb-granted
- *     PERF_VEHICLE_SPEED (CAR_SPEED), ENGINE_RPM (CAR_ENGINE_DETAILED),
- *     FUEL_LEVEL / EV_BATTERY_LEVEL (CAR_ENERGY), PERF_ODOMETER (CAR_MILEAGE),
+ *   needs a runtime request — protectionLevel:dangerous, so any installed app
+ *   can hold these once it actually asks (see VehiclePermissions)
+ *     PERF_VEHICLE_SPEED (CAR_SPEED),
+ *     FUEL_LEVEL / EV_BATTERY_LEVEL (CAR_ENERGY)
+ *
+ *   needs a privileged install — signature|privileged, so no ordinary APK can
+ *   ever hold these, granted or not
+ *     ENGINE_RPM (CAR_ENGINE_DETAILED), PERF_ODOMETER (CAR_MILEAGE),
  *     INFO_VIN (CAR_IDENTIFICATION)
  *
- * The blocked set only becomes readable if the app is installed as a
- * privileged system app; see the notes in README / VehicleDataService.
+ * Only the last group requires installing to /system/priv-app with a
+ * privapp-permissions allowlist; see README.
  */
 class VehicleHalManager(context: Context) {
 

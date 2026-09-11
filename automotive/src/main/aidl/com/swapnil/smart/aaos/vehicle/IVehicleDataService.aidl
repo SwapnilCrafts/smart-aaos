@@ -20,6 +20,12 @@ interface IVehicleDataService {
 
     float getFuelLevel();
 
+    /**
+     * EV_BATTERY_LEVEL as a percentage. Guarded by CAR_ENERGY, the same
+     * dangerous permission as FUEL_LEVEL, so it goes live with a runtime grant.
+     */
+    float getBatteryLevel();
+
     String getGear();
 
     boolean isEngineOn();
