@@ -253,8 +253,9 @@ Every command, with a description of what it does and why, is collected in
       `tools/` — all 14 properties now read live VHAL
 - [x] Custom vendor VHAL properties (read, write, subscribe) via JSON config —
       no C++ or AOSP build required, see `tools/install-vendor-properties.sh`
-- [ ] Custom vendor property implemented in C++ against an AOSP build
-      (needs a Linux host; AOSP does not build on macOS)
+- [ ] Custom vendor property implemented in C++ inside the VHAL. The C++ can
+      be written anywhere; only *building* it needs Linux, since it depends on
+      Soong and AOSP's headers and AOSP does not build on macOS.
 - [ ] Android Auto verification via DHU
 
 ---
