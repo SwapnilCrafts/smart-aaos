@@ -9,7 +9,7 @@ import androidx.car.app.model.ListTemplate
 import androidx.car.app.model.Row
 import androidx.car.app.model.Template
 import androidx.core.graphics.drawable.IconCompat
-import com.swapnil.smart.aaos.media.MusicData
+import com.swapnil.smart.aaos.media.SongRepository
 import com.swapnil.smart.aaos.utils.AlbumArtLoader
 import com.swapnil.smart.aaos.viewmodel.CarViewModelStore
 import com.swapnil.smart.aaos.viewmodel.VehicleViewModel
@@ -19,14 +19,14 @@ class MusicScreen(carContext: CarContext) : Screen(carContext) {
     private val viewModel = CarViewModelStore.get(VehicleViewModel::class.java)
 
     init {
-        viewModel.isCarMoving.observeForever { invalidate() }
+        viewModel.isCarMoving.observe(this) { invalidate() }
     }
 
     override fun onGetTemplate(): Template {
         val isMoving = viewModel.isCarMoving.value ?: false
 
         val listBuilder = ItemList.Builder()
-        MusicData.songs.forEachIndexed { index, song ->
+        SongRepository.songs.forEachIndexed { index, song ->
             val icon = CarIcon.Builder(
                 IconCompat.createWithBitmap(
                     AlbumArtLoader.generatePlaceholder(

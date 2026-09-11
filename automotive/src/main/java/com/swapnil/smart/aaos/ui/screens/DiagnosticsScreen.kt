@@ -27,25 +27,25 @@ class DiagnosticsScreen(carContext: CarContext) : Screen(carContext) {
         // Invalidate only on ACTUAL value change. The VehicleViewModel polls
         // every second; invalidating on every tick makes the host rebuild the
         // scrollable ListTemplate each second, which resets scroll to the top.
-        viewModel.currentAlert.observeForever {
+        viewModel.currentAlert.observe(this) {
             if (it != lastAlert) {
                 lastAlert = it
                 invalidate()
             }
         }
-        viewModel.speed.observeForever {
+        viewModel.speed.observe(this) {
             if (it != lastSpeed) {
                 lastSpeed = it
                 invalidate()
             }
         }
-        viewModel.rpm.observeForever {
+        viewModel.rpm.observe(this) {
             if (it != lastRpm) {
                 lastRpm = it
                 invalidate()
             }
         }
-        viewModel.fuel.observeForever {
+        viewModel.fuel.observe(this) {
             if (it != lastFuel) {
                 lastFuel = it
                 invalidate()

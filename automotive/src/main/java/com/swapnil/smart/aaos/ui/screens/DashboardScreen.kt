@@ -27,14 +27,14 @@ class DashboardScreen(carContext: CarContext) : Screen(carContext) {
     init {
         // Invalidate only on actual value change (avoids constant host rebuilds
         // that reset list scroll). The gauges re-render when a value moves.
-        viewModel.speed.observeForever { if (it != lastSpeed) { lastSpeed = it; invalidate() } }
-        viewModel.rpm.observeForever { if (it != lastRpm) { lastRpm = it; invalidate() } }
-        viewModel.fuel.observeForever { if (it != lastFuel) { lastFuel = it; invalidate() } }
-        viewModel.gear.observeForever { if (it != lastGear) { lastGear = it ?: ""; invalidate() } }
-        viewModel.engineOn.observeForever { invalidate() }
-        viewModel.isConnected.observeForever { invalidate() }
-        viewModel.currentAlert.observeForever { invalidate() }
-        viewModel.odometer.observeForever { invalidate() }
+        viewModel.speed.observe(this) { if (it != lastSpeed) { lastSpeed = it; invalidate() } }
+        viewModel.rpm.observe(this) { if (it != lastRpm) { lastRpm = it; invalidate() } }
+        viewModel.fuel.observe(this) { if (it != lastFuel) { lastFuel = it; invalidate() } }
+        viewModel.gear.observe(this) { if (it != lastGear) { lastGear = it ?: ""; invalidate() } }
+        viewModel.engineOn.observe(this) { invalidate() }
+        viewModel.isConnected.observe(this) { invalidate() }
+        viewModel.currentAlert.observe(this) { invalidate() }
+        viewModel.odometer.observe(this) { invalidate() }
     }
 
     override fun onGetTemplate(): Template {

@@ -25,7 +25,11 @@ object AlertRepository {
         }
     }
 
+    private var isRunning = false
+
     fun start() {
+        if (isRunning) return
+        isRunning = true
         handler.post(runnable)
     }
 

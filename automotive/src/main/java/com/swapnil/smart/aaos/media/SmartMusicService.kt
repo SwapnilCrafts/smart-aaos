@@ -120,19 +120,19 @@ class SmartMusicService : MediaBrowserServiceCompat() {
         }
 
         override fun onSkipToNext() {
-            currentIndex = (currentIndex + 1) % MusicData.songs.size
+            currentIndex = (currentIndex + 1) % SongRepository.songs.size
             playSong(currentIndex)
         }
 
         override fun onSkipToPrevious() {
             currentIndex = if (currentIndex - 1 < 0)
-                MusicData.songs.size - 1
+                SongRepository.songs.size - 1
             else currentIndex - 1
             playSong(currentIndex)
         }
 
         override fun onPlayFromMediaId(mediaId: String?, extras: Bundle?) {
-            val index = MusicData.songs.indexOfFirst { it.id == mediaId }
+            val index = SongRepository.songs.indexOfFirst { it.id == mediaId }
             if (index != -1) {
                 currentIndex = index
                 playSong(currentIndex)
@@ -160,28 +160,28 @@ class SmartMusicService : MediaBrowserServiceCompat() {
         val lowerQuery = query.lowercase().trim()
 
         Log.d("SmartAAOS", "Searching for: $lowerQuery")
-        Log.d("SmartAAOS", "Available songs: ${MusicData.songs.map { it.title }}")
+        Log.d("SmartAAOS", "Available songs: ${SongRepository.songs.map { it.title }}")
 
         // First try exact title match
-        var index = MusicData.songs.indexOfFirst {
+        var index = SongRepository.songs.indexOfFirst {
             it.title.lowercase() == lowerQuery
         }
         if (index != -1) return index
 
         // Then try title contains
-        index = MusicData.songs.indexOfFirst {
+        index = SongRepository.songs.indexOfFirst {
             it.title.lowercase().contains(lowerQuery)
         }
         if (index != -1) return index
 
         // Then try artist match
-        index = MusicData.songs.indexOfFirst {
+        index = SongRepository.songs.indexOfFirst {
             it.artist.lowercase().contains(lowerQuery)
         }
         if (index != -1) return index
 
         // Then try album match
-        index = MusicData.songs.indexOfFirst {
+        index = SongRepository.songs.indexOfFirst {
             it.album.lowercase().contains(lowerQuery)
         }
         if (index != -1) return index
@@ -192,6 +192,9 @@ class SmartMusicService : MediaBrowserServiceCompat() {
 
     override fun onCreate() {
         super.onCreate()
+
+        // 0. Populate the song list first - everything below indexes into it.
+        SongRepository.load(this)
 
         // 1. Create ExoPlayer
         exoPlayer = ExoPlayer.Builder(this).build()
@@ -252,7 +255,7 @@ class SmartMusicService : MediaBrowserServiceCompat() {
 
                     // ✅ Static callback instead of broadcast
                     Log.d("SmartAAOS", "Calling navigation callback")
-                    val song = MusicData.songs[songIndex]
+                    val song = SongRepository.songs[songIndex]
                     handler.post {
                         NavigationCallback.onPlaySong?.invoke(song)
                     }
@@ -267,7 +270,7 @@ class SmartMusicService : MediaBrowserServiceCompat() {
     }
     // ✅ Core function — loads and plays a song
     private fun playSong(index: Int) {
-        val song = MusicData.songs[index]
+        val song = SongRepository.songs[index]
         val mediaItem = MediaItem.fromUri(song.url)
         exoPlayer.setMediaItem(mediaItem)
         exoPlayer.prepare()
@@ -309,7 +312,7 @@ class SmartMusicService : MediaBrowserServiceCompat() {
         handler.removeCallbacks(progressRunnable)
     }
     private fun onSkipToNext() {
-        currentIndex = (currentIndex + 1) % MusicData.songs.size
+        currentIndex = (currentIndex + 1) % SongRepository.songs.size
         playSong(currentIndex)
     }
 
@@ -326,7 +329,7 @@ class SmartMusicService : MediaBrowserServiceCompat() {
         parentId: String,
         result: Result<MutableList<MediaBrowserCompat.MediaItem>>
     ) {
-        val items = MusicData.songs.map { song ->
+        val items = SongRepository.songs.map { song ->
             val desc = MediaDescriptionCompat.Builder()
                 .setMediaId(song.id)
                 .setTitle(song.title)
@@ -342,7 +345,7 @@ class SmartMusicService : MediaBrowserServiceCompat() {
     }
 
     private fun updateMetadata(index: Int) {
-        val song = MusicData.songs[index]
+        val song = SongRepository.songs[index]
         val metadata = MediaMetadataCompat.Builder()
             .putString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID, song.id)
             .putString(MediaMetadataCompat.METADATA_KEY_TITLE, song.title)
@@ -372,7 +375,7 @@ class SmartMusicService : MediaBrowserServiceCompat() {
     }
     // ✅ Foreground service keeps music playing in background
     private fun startForegroundService() {
-        val song = MusicData.songs[currentIndex]
+        val song = SongRepository.songs[currentIndex]
 
         // ✅ Play action
         val playPauseAction = if (exoPlayer.isPlaying) {

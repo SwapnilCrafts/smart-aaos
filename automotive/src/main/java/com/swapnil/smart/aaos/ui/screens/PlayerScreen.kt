@@ -18,7 +18,7 @@ import androidx.car.app.model.PaneTemplate
 import androidx.car.app.model.Row
 import androidx.car.app.model.Template
 import androidx.core.graphics.drawable.IconCompat
-import com.swapnil.smart.aaos.media.MusicData
+import com.swapnil.smart.aaos.media.SongRepository
 import com.swapnil.smart.aaos.media.Song
 import com.swapnil.smart.aaos.media.SmartMusicService
 import com.swapnil.smart.aaos.ui.NavigationCallback
@@ -71,7 +71,7 @@ class PlayerScreen(
 
                         override fun onMetadataChanged(metadata: MediaMetadataCompat?) {
                             val newId = metadata?.getString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID)
-                            val newSong = MusicData.songs.firstOrNull { it.id == newId }
+                            val newSong = SongRepository.songs.firstOrNull { it.id == newId }
                             if (newSong != null && newSong.id != song.id) {
                                 song = newSong
                                 loadAlbumArt()
@@ -97,7 +97,7 @@ class PlayerScreen(
     }
 
     private fun loadAlbumArt() {
-        val songIndex = MusicData.songs.indexOfFirst { it.id == song.id }
+        val songIndex = SongRepository.songs.indexOfFirst { it.id == song.id }
         CoroutineScope(Dispatchers.Main).launch {
             val bitmap = if (song.artUrl.isNotEmpty()) AlbumArtLoader.loadBitmap(song.artUrl) else null
             albumArtBitmap = bitmap ?: AlbumArtLoader.generatePlaceholder(
@@ -111,7 +111,7 @@ class PlayerScreen(
     override fun onGetTemplate(): Template {
         val paneBuilder = Pane.Builder()
 
-        val currentIndex = MusicData.songs.indexOfFirst { it.id == song.id }
+        val currentIndex = SongRepository.songs.indexOfFirst { it.id == song.id }
         val songNumber = currentIndex + 1
         val progressBar = buildProgressBar(currentPositionMs, song.durationMs)
         val progressText = buildProgressText(currentPositionMs, song.durationMs)
@@ -143,15 +143,15 @@ class PlayerScreen(
             Row.Builder()
                 .setTitle(song.title)
                 .addText("${song.artist}  ·  ${song.album}")
-                .addText("$progressBar  $progressText  ·  Track $songNumber / ${MusicData.songs.size}")
+                .addText("$progressBar  $progressText  ·  Track $songNumber / ${SongRepository.songs.size}")
                 .setImage(albumArtIcon)
                 .build()
         )
 
         // Up Next row — only when no alert (stays within 2-row limit)
         if (!hasAlert) {
-            val nextIndex = (currentIndex + 1) % MusicData.songs.size
-            val nextSong = MusicData.songs[nextIndex]
+            val nextIndex = (currentIndex + 1) % SongRepository.songs.size
+            val nextSong = SongRepository.songs[nextIndex]
             paneBuilder.addRow(
                 Row.Builder()
                     .setTitle("Up Next")
@@ -174,9 +174,9 @@ class PlayerScreen(
             .setTitle("Next")
             .setOnClickListener {
                 if (VehicleRepository.getSpeed() <= 2f) {
-                    val idx = MusicData.songs.indexOfFirst { it.id == song.id }
-                    val nextIdx = (idx + 1) % MusicData.songs.size
-                    song = MusicData.songs[nextIdx]
+                    val idx = SongRepository.songs.indexOfFirst { it.id == song.id }
+                    val nextIdx = (idx + 1) % SongRepository.songs.size
+                    song = SongRepository.songs[nextIdx]
                     currentPositionMs = 0L
                     loadAlbumArt()
                     mediaController?.transportControls?.playFromMediaId(song.id, null)
@@ -197,9 +197,9 @@ class PlayerScreen(
             )
             .setOnClickListener {
                 if (VehicleRepository.getSpeed() <= 2f) {
-                    val idx = MusicData.songs.indexOfFirst { it.id == song.id }
-                    val prevIdx = if (idx > 0) idx - 1 else MusicData.songs.size - 1
-                    song = MusicData.songs[prevIdx]
+                    val idx = SongRepository.songs.indexOfFirst { it.id == song.id }
+                    val prevIdx = if (idx > 0) idx - 1 else SongRepository.songs.size - 1
+                    song = SongRepository.songs[prevIdx]
                     currentPositionMs = 0L
                     loadAlbumArt()
                     mediaController?.transportControls?.playFromMediaId(song.id, null)
