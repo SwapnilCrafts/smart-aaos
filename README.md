@@ -24,7 +24,7 @@ emulator with `cmd car_service get-carpropertyconfig`.
 | Gear, ignition, parking brake | **live VHAL** | `CAR_POWERTRAIN` is `protectionLevel:normal` |
 | Make, model, year, fuel capacity | **live VHAL** | `CAR_INFO` is `normal` |
 | Speed, fuel, battery | **live VHAL** | `CAR_SPEED` / `CAR_ENERGY` are `dangerous` — a runtime request, like location |
-| RPM, odometer, VIN | simulated | `CAR_ENGINE_DETAILED` / `CAR_MILEAGE` / `CAR_IDENTIFICATION` are `signature\|privileged` |
+| RPM, odometer, VIN | **live VHAL**, privileged install only | `CAR_ENGINE_DETAILED` / `CAR_MILEAGE` / `CAR_IDENTIFICATION` are `signature\|privileged`; simulated on a normal install |
 
 The middle row is the part worth knowing. I assumed for a long time that
 everything interesting in the VHAL was privileged, because a missing
@@ -167,6 +167,33 @@ adb shell cmd location set-location-enabled true --user 10
 adb emu geo fix 72.8777 19.0760
 ```
 
+### Optional: real RPM, odometer and VIN
+
+These three need the app installed as a privileged system app. One-time
+setup per emulator:
+
+```bash
+# boot the AVD writable (needs a userdebug image and a few GB free)
+emulator -avd <your-aaos-avd> -writable-system -no-snapshot-load
+
+./gradlew :automotive:assembleDebug
+./tools/install-as-privileged-app.sh      # pushes to /system/priv-app, reboots
+./tools/revert-privileged-app.sh          # to undo
+```
+
+Afterwards the normal Android Studio run/install loop keeps working and the
+privileged permissions stick. Then feed the VHAL real values:
+
+```bash
+# 31 m/s = 111.6 km/h, at 5 Hz for 180 s
+adb shell cmd car_service inject-continuous-events 291504647 31 -s 5 -d 180
+adb shell cmd car_service inject-continuous-events 291504901 5600 -s 5 -d 180
+```
+
+Note that a single `inject-vhal-event` does not stick for CONTINUOUS
+properties like speed and RPM — the VHAL's own generator overwrites it.
+`inject-continuous-events` is the one that works.
+
 Driving faults and alerts are triggered from **Info -> Simulation**
 (overspeed, engine fault, low fuel, manual DTC), since the alert
 thresholds are never crossed by normal simulated driving.
@@ -183,10 +210,13 @@ More commands, including MediaStore on a multi-user head unit, are in
   dashboard). A real app declares exactly one category, and a dashboard
   is not a third-party category at all. Kept combined on purpose, to
   cover more of the platform surface in one project.
-- **RPM, odometer and VIN are simulated** and will stay that way until the
-  app is installed as a privileged system app (`tools/install-as-privileged-app.sh`).
-  This is a permission boundary, not a missing feature. Speed, fuel and
-  battery are live once the runtime permissions are granted.
+- **RPM, odometer and VIN need a privileged install** to be live
+  (`tools/install-as-privileged-app.sh`, undo with `tools/revert-privileged-app.sh`).
+  On a normal install they fall back to simulated values — a permission
+  boundary, not a missing feature. Everything else is live either way.
+  Usefully, the privileged install is one-time: an ordinary
+  `installDebug` afterwards keeps the privileged permissions, because the
+  package counts as an updated system app.
 - **The empty band below list screens is a host reserve** of 121 dp,
   measured density-invariant, and cannot be removed from the app. Only
   surface-based templates use the full screen height.
@@ -214,8 +244,8 @@ More commands, including MediaStore on a multi-user head unit, are in
 - [ ] Gauges on `GridTemplate` for legibility
 - [x] Runtime car permissions requested properly, making speed / fuel /
       battery live on a normal install
-- [ ] Privileged system app install, for RPM / odometer / VIN
-      (scripted in `tools/`, blocked on emulator disk space)
+- [x] Privileged system app install for RPM / odometer / VIN, scripted in
+      `tools/` — all 14 properties now read live VHAL
 - [ ] Custom vendor VHAL property implemented in AOSP (C++)
 - [ ] Android Auto verification via DHU
 

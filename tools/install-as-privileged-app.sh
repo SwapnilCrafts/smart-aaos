@@ -42,16 +42,19 @@ step "Waiting for device"
 adb wait-for-device
 until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; do sleep 2; done
 
-step "Checking the image allows a writable /system"
+step "Making /system writable"
 adb root
 adb wait-for-device
-if ! adb remount 2>&1 | tee /tmp/smartaaos-remount.log | grep -qiE 'remount succeeded|^$'; then
-    if grep -qi 'bootloader unlocked' /tmp/smartaaos-remount.log; then
-        echo "FAILED: /system is read-only. Reboot the AVD with -writable-system." >&2
-        exit 1
-    fi
+# adb remount's wording varies (it may report "Using overlayfs for /system"
+# rather than success), so don't parse it - probe with an actual write.
+adb remount 2>&1 | sed 's/^/  /' || true
+if ! adb shell 'touch /system/.rw_probe 2>/dev/null && rm /system/.rw_probe && echo ok' | grep -q ok; then
+    echo "FAILED: /system is read-only." >&2
+    echo "Reboot the AVD with -writable-system and make sure the disk is not full:" >&2
+    echo "  emulator -avd <name> -writable-system -no-snapshot-load" >&2
+    exit 1
 fi
-adb shell 'mount | grep -E " / | /system " ' || true
+echo "  /system is writable"
 
 step "Removing any normal (data) install of $PKG"
 # A /data install shadows the system one; both present means the old APK wins.

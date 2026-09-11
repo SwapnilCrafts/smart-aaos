@@ -434,6 +434,76 @@ number when deciding how much to put in a `ListTemplate`.
 
 ---
 
+## 11. A privileged install is one-time; the normal dev loop survives it
+
+**Goal.** Read the three properties no ordinary APK can reach: `ENGINE_RPM`
+(`CAR_ENGINE_DETAILED`), `PERF_ODOMETER` (`CAR_MILEAGE`) and `INFO_VIN`
+(`CAR_IDENTIFICATION`).
+
+**What it takes.** Four things, and missing any one of them fails silently:
+
+1. Boot the AVD with `-writable-system`. Without it `adb remount` refuses with
+   `Device must be bootloader unlocked` — misleading, since no bootloader is
+   involved; the system image is simply mounted read-only.
+2. Push the APK to `/system/priv-app/SmartAAOS/`, mode 644. PackageManager
+   skips priv-app APKs it cannot read.
+3. Install a `privapp-permissions` allowlist XML naming the package and each
+   privileged permission. **Since Android 9, being in priv-app is not enough
+   on its own** — an unlisted privileged permission is just denied.
+4. Reboot. `/system/priv-app` is scanned at boot only, so pushing an APK there
+   on a running system does nothing until the package database is rebuilt.
+
+Scripted end to end in `tools/install-as-privileged-app.sh`, with
+`tools/revert-privileged-app.sh` to undo it.
+
+**Result.** All 14 properties the app reads went live, and the subscription
+count went from 4 to 9:
+
+```
+Subscribed to 9 of 9 properties
+Availability: ENGINE_RPM      LIVE VHAL     <- was blocked
+Availability: PERF_ODOMETER   LIVE VHAL     <- was blocked
+Availability: INFO_VIN        LIVE VHAL     <- was blocked
+```
+
+Real injected values then flowed through `registerCallback` into the UI:
+
+```bash
+adb shell cmd car_service inject-continuous-events 291504647 31 -s 5 -d 180
+# app: getSpeed (VHAL): 111.6 km/h     (31 m/s x 3.6, exact)
+# app: getRpm   (VHAL): 5600.0 RPM
+# UI:  Engine  Critical - High RPM (5600)
+# UI:  1GCARVIN123456789
+```
+
+### The part I expected to be painful and wasn't
+
+I assumed a privileged install would mean abandoning the normal build-and-run
+loop, since Android Studio installs to `/data/app`. It does not. Installing the
+same APK the ordinary way afterwards:
+
+```bash
+adb install -r --user 10 automotive-debug.apk
+# package:/data/app/~~iMBiJgz.../base.apk     <- resolves from /data now
+# CAR_MILEAGE: granted=true                   <- privileged perms survive
+# Subscribed to 9 of 9 properties             <- still fully live
+```
+
+Once a package has been scanned from `/system`, a later install over it is
+treated as an **updated system app**: the `/data` APK takes effect but the
+package keeps its system origin, and therefore its privileged permissions.
+
+This cuts both ways, and it is the reason `adb uninstall` alone cannot undo
+this: uninstalling an updated system app just reverts to the system APK
+underneath. The `/system` copy must be deleted and the device rebooted.
+
+**Conclusion.** The privileged install is a one-time setup step per emulator,
+not a change to how the app is developed. That is roughly how OEM app teams
+work: the platform-side allowlist is configured once in the system image, and
+day-to-day development is ordinary app development on top of it.
+
+---
+
 ## Command reference
 
 ```bash
@@ -459,6 +529,10 @@ adb shell pm grant --user 10 <pkg> android.car.permission.CAR_SPEED
 
 # install as a privileged system app (needs -writable-system); see tools/
 ./tools/install-as-privileged-app.sh
+./tools/revert-privileged-app.sh
+
+# feed CONTINUOUS properties: a single inject-vhal-event does not stick
+adb shell cmd car_service inject-continuous-events 291504647 31 -s 5 -d 180
 
 # this app's own availability report
 adb logcat -s SmartAAOS_VHAL:D | grep Availability
