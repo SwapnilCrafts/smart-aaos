@@ -14,16 +14,18 @@ import androidx.car.app.model.TabContents
 import androidx.car.app.model.TabTemplate
 import androidx.car.app.model.Template
 import androidx.core.graphics.drawable.IconCompat
-import com.swapnil.smart.aaos.media.MusicData
+import com.swapnil.smart.aaos.media.SongRepository
 import com.swapnil.smart.aaos.ui.GaugeDrawer
 import com.swapnil.smart.aaos.ui.NavigationCallback
 import com.swapnil.smart.aaos.ui.AppIcons
 import com.swapnil.smart.aaos.utils.AlertRepository
 import com.swapnil.smart.aaos.utils.AlbumArtLoader
+import com.swapnil.smart.aaos.utils.CarLocationProvider
 import com.swapnil.smart.aaos.utils.VehicleAlert
 import com.swapnil.smart.aaos.vehicle.VehicleRepository
 import com.swapnil.smart.aaos.viewmodel.CarViewModelStore
 import com.swapnil.smart.aaos.viewmodel.VehicleViewModel
+import java.util.Locale
 
 class HomeScreen(carContext: CarContext) : Screen(carContext) {
 
@@ -39,24 +41,30 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
     init {
         VehicleRepository.connect(carContext)
         AlertRepository.start()
+        ensureSongLibrary()
+        // Start location here as well as in NavigationScreen so the Go tab can
+        // show real distances before the map has ever been opened.
+        if (CarLocationProvider.hasPermission(carContext)) {
+            CarLocationProvider.start(carContext) { invalidate() }
+        }
 
         // Invalidate only on actual state TRANSITIONS so the host doesn't
         // rebuild the template every second (which resets list scroll to top).
-        viewModel.isCarMoving.observeForever {
+        viewModel.isCarMoving.observe(this) {
             if (it != previousMoving) {
                 previousMoving = it
                 invalidate()
             }
         }
-        viewModel.currentAlert.observeForever {
+        viewModel.currentAlert.observe(this) {
             if (it != previousAlert) {
                 previousAlert = it
                 invalidate()
             }
         }
         // Live gauges on the Drive tab.
-        viewModel.speed.observeForever { if (it != previousSpeed) { previousSpeed = it; if (activeTabId == TAB_DRIVE) invalidate() } }
-        viewModel.gear.observeForever { if (it != previousGeo) { previousGeo = it ?: ""; if (activeTabId == TAB_DRIVE) invalidate() } }
+        viewModel.speed.observe(this) { if (it != previousSpeed) { previousSpeed = it; if (activeTabId == TAB_DRIVE) invalidate() } }
+        viewModel.gear.observe(this) { if (it != previousGeo) { previousGeo = it ?: ""; if (activeTabId == TAB_DRIVE) invalidate() } }
 
         NavigationCallback.onPlaySong = { song ->
             screenManager.push(PlayerScreen(carContext, song, {}))
@@ -65,6 +73,31 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
             if (viewModel.isCarMoving.value != true) {
                 screenManager.push(DashboardScreen(carContext))
             }
+        }
+    }
+
+    /**
+     * The automotive module has no Activity of its own, so READ_MEDIA_AUDIO has
+     * to be requested through the car host. Without it MediaStore returns
+     * nothing and the bundled demo list stays in place.
+     */
+    private fun ensureSongLibrary() {
+        if (SongRepository.hasAudioPermission(carContext)) {
+            SongRepository.load(carContext)
+            return
+        }
+        try {
+            carContext.requestPermissions(
+                listOf(SongRepository.audioPermission)
+            ) { approved, _ ->
+                if (approved.contains(SongRepository.audioPermission)) {
+                    SongRepository.load(carContext)
+                    invalidate()
+                }
+            }
+        } catch (e: Exception) {
+            // Some hosts refuse the dialog unless the app is foregrounded.
+            Log.d("SmartAAOS_Songs", "Permission request unavailable: ${e.message}")
         }
     }
 
@@ -173,7 +206,7 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
 
     private fun buildMusicTab(isMoving: Boolean): Template {
         val listBuilder = ItemList.Builder()
-        MusicData.songs.forEachIndexed { index, song ->
+        SongRepository.songs.forEachIndexed { index, song ->
             val icon = CarIcon.Builder(
                 IconCompat.createWithBitmap(
                     AlbumArtLoader.generatePlaceholder(
@@ -198,7 +231,7 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
             .setTitle("Music")
             .setHeaderAction(Action.APP_ICON)
             .addSectionedList(
-                SectionedItemList.create(listBuilder.build(), "Library  ·  ${MusicData.songs.size} Songs")
+                SectionedItemList.create(listBuilder.build(), "Library  ·  ${SongRepository.songs.size} Songs")
             )
             .build()
     }
@@ -216,7 +249,8 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
             destList.addItem(
                 Row.Builder()
                     .setTitle(dest.name)
-                    .addText("${dest.distanceKm} km")
+                    .addText(String.format(Locale.US, "%.1f km", NavigationScreen.distanceKm(dest)))
+                    .addText("Preview route · then Start in Maps")
                     .setOnClickListener {
                         screenManager.push(NavigationScreen(carContext).also { it.startNavigation(dest) })
                     }
@@ -256,6 +290,13 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
                     .setTitle("Vehicle Info")
                     .addText("Make  ·  Model  ·  VIN")
                     .setOnClickListener { screenManager.push(DiagnosticsScreen(carContext)) }
+                    .build()
+            )
+            .addItem(
+                Row.Builder()
+                    .setTitle("Simulation")
+                    .addText("Trigger overspeed  ·  faults  ·  alerts")
+                    .setOnClickListener { screenManager.push(SimulationScreen(carContext)) }
                     .build()
             )
 

@@ -8,6 +8,7 @@ import android.graphics.Typeface
 import android.util.Log
 import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
+import com.swapnil.smart.aaos.utils.CarLocationProvider
 
 /**
  * Registers as a [androidx.car.app.SurfaceCallback] so the app is handed a
@@ -22,6 +23,12 @@ class MapSurfaceRenderer(
 ) : SurfaceCallback {
 
     private var surfaceContainer: SurfaceContainer? = null
+
+    // The host reports which part of the surface its own chrome (header, action
+    // strip, pan controls) is NOT covering. Route/pin content is confined to
+    // this, otherwise pins near a corner end up behind the action strip.
+    private var visibleArea: Rect? = null
+    private var stableArea: Rect? = null
 
     // Interactive pan/zoom state applied as a transform to every draw, so the
     // user can drag (pan), fling, and pinch-zoom the map.
@@ -91,8 +98,17 @@ class MapSurfaceRenderer(
         draw()
     }
 
-    override fun onVisibleAreaChanged(rect: Rect) = draw()
-    override fun onStableAreaChanged(rect: Rect) = draw()
+    override fun onVisibleAreaChanged(rect: Rect) {
+        visibleArea = Rect(rect)
+        Log.d("NavScreen", "visible area $rect")
+        draw()
+    }
+
+    override fun onStableAreaChanged(rect: Rect) {
+        stableArea = Rect(rect)
+        Log.d("NavScreen", "stable area $rect")
+        draw()
+    }
 
     override fun onSurfaceDestroyed(surfaceContainer: SurfaceContainer) {
         Log.d("NavScreen", "surface destroyed")
@@ -179,9 +195,10 @@ class MapSurfaceRenderer(
             x += stepX
         }
 
-        val origin = ORIGIN
-        val o = project(origin.lat, origin.lng, dest.lat, dest.lng, w, h)
-        val d = project(dest.lat, dest.lng, dest.lat, dest.lng, w, h)
+        val origin = origin()
+        val area = contentBounds(w, h)
+        val o = project(origin.lat, origin.lng, dest.lat, dest.lng, area)
+        val d = project(dest.lat, dest.lng, origin.lat, origin.lng, area)
 
         // Rise along a smooth arc with a slight detour so it reads as a route.
         val points = routePoints(o, d, 24)
@@ -198,16 +215,45 @@ class MapSurfaceRenderer(
         )
 
         // Origin pin (green)
-        drawPin(c, o.x, o.y, originPinPaint, originBodyPaint, "You")
+        drawPin(c, o.x, o.y, originPinPaint, originBodyPaint, "You", "you are here")
 
-        // Destination pin (red) at screen-right, slightly lower for prominence
-        val dp = project(dest.lat, dest.lng, dest.lat, dest.lng, w, h)
-        drawPin(c, dp.x, dp.y, destPinPaint, destBodyPaint, dest.name)
+        // Destination pin (red)
+        drawPin(c, d.x, d.y, destPinPaint, destBodyPaint, dest.name, "destination")
 
         c.restore()
     }
 
-    private fun drawPin(c: Canvas, x: Float, y: Float, shadow: Paint, body: Paint, label: String) {
+    /**
+     * Region the route and pins may occupy: the host's stable area when known,
+     * else the visible area, else the whole surface - then inset so a pin's
+     * labels (drawn above the pin) stay on screen too.
+     */
+    private fun contentBounds(w: Int, h: Int): Rect {
+        val surface = Rect(0, 0, w, h)
+        val reported = stableArea?.takeIf { !it.isEmpty }
+            ?: visibleArea?.takeIf { !it.isEmpty }
+        val bounds = Rect(reported ?: surface)
+        if (!bounds.intersect(surface)) bounds.set(surface)
+
+        bounds.inset(LABEL_PAD_X, LABEL_PAD_Y)
+        // A tiny stable area could invert the rect; fall back rather than draw
+        // pins at negative coordinates.
+        if (bounds.isEmpty) {
+            bounds.set(surface)
+            bounds.inset(LABEL_PAD_X, LABEL_PAD_Y)
+        }
+        return bounds
+    }
+
+    private fun drawPin(
+        c: Canvas,
+        x: Float,
+        y: Float,
+        shadow: Paint,
+        body: Paint,
+        label: String,
+        subLabel: String
+    ) {
         // Tear-drop pin: circle plus triangle tail
         c.drawCircle(x, y, 16f, shadow)
         val path = android.graphics.Path().apply {
@@ -219,7 +265,7 @@ class MapSurfaceRenderer(
         c.drawPath(path, shadow)
         c.drawCircle(x, y, 11f, body)
         c.drawText(shortLabel(label), x, y - 28f, labelPaint)
-        c.drawText("destination", x, y - 4f, subLabelPaint)
+        c.drawText(subLabel, x, y - 4f, subLabelPaint)
     }
 
     private fun shortLabel(name: String): String =
@@ -244,21 +290,48 @@ class MapSurfaceRenderer(
     private fun project(
         lat: Double, lng: Double,
         destLat: Double, destLng: Double,
-        w: Int, h: Int
+        area: Rect
     ): Pt {
-        val minLat = minOf(lat, destLat) - 0.06
-        val maxLat = maxOf(lat, destLat) + 0.06
-        val minLng = minOf(lng, destLng) - 0.06
-        val maxLng = maxOf(lng, destLng) + 0.06
+        // Pad proportionally to the route, not by a fixed degree amount. A flat
+        // 0.06 deg (~6.7 km) pad swamps any short route, collapsing both pins
+        // onto the same pixel; scaling the pad keeps the route filling the
+        // surface whether it is 1 km or 30 km long.
+        val routeLat = kotlin.math.abs(destLat - lat)
+        val routeLng = kotlin.math.abs(destLng - lng)
+        val padLat = maxOf(routeLat * 0.30, 0.004)
+        val padLng = maxOf(routeLng * 0.30, 0.004)
+
+        val minLat = minOf(lat, destLat) - padLat
+        val maxLat = maxOf(lat, destLat) + padLat
+        val minLng = minOf(lng, destLng) - padLng
+        val maxLng = maxOf(lng, destLng) + padLng
         val spanLng = maxOf(maxLng - minLng, 0.0001)
         val spanLat = maxOf(maxLat - minLat, 0.0001)
 
-        val x = ((lng - minLng) / spanLng * w).toFloat()
-        val y = ((1.0 - (lat - minLat) / spanLat) * h).toFloat()
+        val x = area.left + ((lng - minLng) / spanLng * area.width()).toFloat()
+        val y = area.top + ((1.0 - (lat - minLat) / spanLat) * area.height()).toFloat()
         return Pt(x, y)
     }
 
     companion object {
-        val ORIGIN = NavDestination("Origin", "Current location", 37.7793, -122.4193, 0.0)
+        /** Headroom for the pin label stack drawn above each pin. */
+        private const val LABEL_PAD_X = 90
+        private const val LABEL_PAD_Y = 64
+
+        /** Used only until a real fix arrives (Mumbai city centre). */
+        private const val FALLBACK_LAT = 19.0760
+        private const val FALLBACK_LNG = 72.8777
+
+        /** Live vehicle position when available, else [FALLBACK_LAT]/[FALLBACK_LNG]. */
+        fun origin(): NavDestination {
+            val fix = CarLocationProvider.current
+            return NavDestination(
+                "You",
+                "Current location",
+                fix?.latitude ?: FALLBACK_LAT,
+                fix?.longitude ?: FALLBACK_LNG,
+                0.0
+            )
+        }
     }
 }
