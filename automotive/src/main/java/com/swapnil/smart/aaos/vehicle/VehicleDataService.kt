@@ -25,116 +25,124 @@ class VehicleDataService : Service() {
 
     private lateinit var halManager: VehicleHalManager
 
+    /** Last message logged per key, so a 1 Hz poll cannot flood logcat. */
+    private val lastLogged = HashMap<String, String>()
+
+    /** Logs [message] only when it differs from the previous one for [key]. */
+    private fun logOnChange(key: String, message: String) {
+        if (lastLogged.put(key, message) != message) Log.d(TAG, message)
+    }
+
     // ✅ AIDL Stub — implements the interface
     private val binder = object : IVehicleDataService.Stub() {
 
         override fun getSpeed(): Float {
             val vhal = halManager.getSpeedKmh()
             if (vhal != null) {
-                Log.d(TAG, "getSpeed (VHAL): $vhal km/h")
+                logOnChange("getSpeed", "getSpeed (VHAL): $vhal km/h")
                 return vhal
             }
-            Log.d(TAG, "getSpeed (simulated): $currentSpeed km/h")
+            logOnChange("getSpeed", "getSpeed (simulated): $currentSpeed km/h")
             return currentSpeed
         }
 
         override fun getRpm(): Float {
             val vhal = halManager.getRpm()
             if (vhal != null) {
-                Log.d(TAG, "getRpm (VHAL): $vhal RPM")
+                logOnChange("getRpm", "getRpm (VHAL): $vhal RPM")
                 return vhal
             }
-            Log.d(TAG, "getRpm (simulated): $currentRpm RPM")
+            logOnChange("getRpm", "getRpm (simulated): $currentRpm RPM")
             return currentRpm
         }
 
         override fun getFuelLevel(): Float {
             val vhal = halManager.getFuelLevelFraction()
             if (vhal != null) {
-                Log.d(TAG, "getFuelLevel (VHAL): $vhal fraction")
+                logOnChange("getFuelLevel", "getFuelLevel (VHAL): $vhal fraction")
                 return vhal * 100f
             }
-            Log.d(TAG, "getFuelLevel (simulated): $currentFuel%")
+            logOnChange("getFuelLevel", "getFuelLevel (simulated): $currentFuel%")
             return currentFuel
         }
 
         override fun getGear(): String {
             val vhal = halManager.getGearString()
             if (vhal != null) {
-                Log.d(TAG, "getGear (VHAL): $vhal")
+                logOnChange("getGear", "getGear (VHAL): $vhal")
                 return vhal
             }
-            Log.d(TAG, "getGear (simulated): $currentGear")
+            logOnChange("getGear", "getGear (simulated): $currentGear")
             return currentGear
         }
 
         override fun isEngineOn(): Boolean {
             val vhal = halManager.isEngineOn()
             if (vhal != null) {
-                Log.d(TAG, "isEngineOn (VHAL): $vhal")
+                logOnChange("isEngineOn", "isEngineOn (VHAL): $vhal")
                 return vhal
             }
-            Log.d(TAG, "isEngineOn (simulated): $engineOn")
+            logOnChange("isEngineOn", "isEngineOn (simulated): $engineOn")
             return engineOn
         }
 
         override fun getOdometer(): Float {
             val vhal = halManager.getOdometerKm()
             if (vhal != null) {
-                Log.d(TAG, "getOdometer (VHAL): $vhal km")
+                logOnChange("getOdometer", "getOdometer (VHAL): $vhal km")
                 return vhal
             }
-            Log.d(TAG, "getOdometer (simulated): $currentOdometer km")
+            logOnChange("getOdometer", "getOdometer (simulated): $currentOdometer km")
             return currentOdometer
         }
 
         override fun getMake(): String {
             val vhal = halManager.getMake()
             if (vhal != null) {
-                Log.d(TAG, "getMake (VHAL): $vhal")
+                logOnChange("getMake", "getMake (VHAL): $vhal")
                 return vhal
             }
-            Log.d(TAG, "getMake (simulated): Smart AAOS EV")
+            logOnChange("getMake", "getMake (simulated): Smart AAOS EV")
             return "Smart AAOS EV"
         }
 
         override fun getModel(): String {
             val vhal = halManager.getModel()
             if (vhal != null) {
-                Log.d(TAG, "getModel (VHAL): $vhal")
+                logOnChange("getModel", "getModel (VHAL): $vhal")
                 return vhal
             }
-            Log.d(TAG, "getModel (simulated): Twin Turbo")
+            logOnChange("getModel", "getModel (simulated): Twin Turbo")
             return "Twin Turbo"
         }
 
         override fun getVin(): String {
             val vhal = halManager.getVin()
             if (vhal != null) {
-                Log.d(TAG, "getVin (VHAL): $vhal")
+                logOnChange("getVin", "getVin (VHAL): $vhal")
                 return vhal
             }
-            Log.d(TAG, "getVin (restricted): signature-level permission")
+            logOnChange("getVin", "getVin (restricted): signature-level permission")
             return ""
         }
 
         override fun getModelYear(): Int {
             val vhal = halManager.getModelYear()
             if (vhal != null) {
-                Log.d(TAG, "getModelYear (VHAL): $vhal")
+                logOnChange("getModelYear", "getModelYear (VHAL): $vhal")
                 return vhal
             }
-            Log.d(TAG, "getModelYear (restricted): signature-level permission")
+            logOnChange("getModelYear", "getModelYear (restricted): signature-level permission")
             return 0
         }
 
         override fun getFuelCapacityLitres(): Float {
             val vhal = halManager.getFuelCapacityLitres()
             if (vhal != null) {
-                Log.d(TAG, "getFuelCapacityLitres (VHAL): $vhal L")
+                logOnChange("getFuelCapacityLitres", "getFuelCapacityLitres (VHAL): $vhal L")
                 return vhal
             }
-            Log.d(TAG, "getFuelCapacityLitres (restricted): signature-level permission")
+            logOnChange("getFuelCapacityLitres", "getFuelCapacityLitres (restricted): signature-level permission")
             return -1f
         }
 
@@ -165,20 +173,15 @@ class VehicleDataService : Service() {
         super.onCreate()
         Log.d(TAG, "VehicleDataService created")
         halManager = VehicleHalManager(this)
-        // One-shot self-check: prove the CAR_INFO-gated INFO properties read
-        // REAL VHAL values (not simulated). Runs after the car connection settles.
-        val h = Handler(Looper.getMainLooper())
-        val check = object : Runnable {
-            var attempt = 0
-            override fun run() {
-                attempt++
-                Log.d(TAG, "INFO self-check #$attempt → Make=${halManager.getMake()} Model=${halManager.getModel()} " +
-                        "Year=${halManager.getModelYear()} VIN=${halManager.getVin()} " +
-                        "FuelCap=${halManager.getFuelCapacityLitres()}L")
-                if (attempt < 5) h.postDelayed(this, 2000)
-            }
-        }
-        h.postDelayed(check, 3000)
+        // The car service connection settles a moment after process start, so
+        // give it a beat before reporting which properties are genuinely live.
+        // Read it with: adb logcat -s SmartAAOS_AIDL:D SmartAAOS_VHAL:D
+        Handler(Looper.getMainLooper()).postDelayed({
+            halManager.logAvailability()
+            Log.d(TAG, "INFO self-check -> Make=${halManager.getMake()} Model=${halManager.getModel()} " +
+                    "Year=${halManager.getModelYear()} VIN=${halManager.getVin()} " +
+                    "FuelCap=${halManager.getFuelCapacityLitres()}L")
+        }, 3000)
     }
 
     // ✅ Return binder to clients

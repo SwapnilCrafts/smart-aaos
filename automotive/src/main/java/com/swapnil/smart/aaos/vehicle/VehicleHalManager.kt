@@ -1,6 +1,7 @@
 package com.swapnil.smart.aaos.vehicle
 
 import android.car.Car
+import android.car.VehicleAreaSeat
 import android.car.VehicleAreaType
 import android.car.VehicleGear
 import android.car.VehicleIgnitionState
@@ -11,26 +12,54 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Reads real vehicle data from the VHAL. On the automotive emulator the
- * following properties are exposed and can be manipulated via the emulator's
- * "Car" extended-controls panel or `adb shell cmd car_service`, so this
- * returns live values when available. Falls back to the legacy simulated
- * values (from [VehicleDataService]) when the car service / property is not
- * supported on the current device.
+ * Reads real vehicle data from the VHAL.
  *
- * Nullable so a failed read never crashes the app.
+ * Every getter is nullable: null means "not readable here", and
+ * [VehicleDataService] then serves its simulated value instead. So a missing
+ * permission or an unsupported property degrades rather than crashing.
+ *
+ * What a normal third-party install can actually read (verified against the
+ * AAOS API 35 emulator with `adb shell cmd car_service get-carpropertyconfig`):
+ *
+ *   readable — CAR_INFO + CAR_POWERTRAIN are protectionLevel:normal
+ *     INFO_MAKE / INFO_MODEL / INFO_MODEL_YEAR / INFO_FUEL_CAPACITY /
+ *     INFO_EV_BATTERY_CAPACITY, GEAR_SELECTION / CURRENT_GEAR, IGNITION_STATE
+ *
+ *   NOT readable — signature|privileged, cannot be adb-granted
+ *     PERF_VEHICLE_SPEED (CAR_SPEED), ENGINE_RPM (CAR_ENGINE_DETAILED),
+ *     FUEL_LEVEL / EV_BATTERY_LEVEL (CAR_ENERGY), PERF_ODOMETER (CAR_MILEAGE),
+ *     INFO_VIN (CAR_IDENTIFICATION)
+ *
+ * The blocked set only becomes readable if the app is installed as a
+ * privileged system app; see the notes in README / VehicleDataService.
  */
 class VehicleHalManager(context: Context) {
 
     companion object {
         private const val TAG = "SmartAAOS_VHAL"
         private const val AREA_GLOBAL = VehicleAreaType.VEHICLE_AREA_TYPE_GLOBAL
+
+        /** Driver seat on a left-hand-drive vehicle. */
+        private const val AREA_DRIVER_SEAT = VehicleAreaSeat.SEAT_ROW_1_LEFT
     }
 
     private var car: Car? = null
     private var propertyManager: CarPropertyManager? = null
+
+    /**
+     * Per-property read permission / support verdict.
+     *
+     * Without this, [isSupported] asks the car service on every poll, and each
+     * miss makes the framework log "W CarPropertyManager: Missing required
+     * permissions to access property: X" - at 1 Hz across four blocked
+     * properties that is 4 warnings a second drowning logcat. The verdict can
+     * only change when the car service reconnects, so cache it and clear the
+     * cache on disconnect.
+     */
+    private val supportCache = ConcurrentHashMap<Int, Boolean>()
 
     private fun ensureConnected() {
         if (propertyManager != null) return
@@ -48,9 +77,14 @@ class VehicleHalManager(context: Context) {
         }
     }
 
-    private val lifecycleListener = Car.CarServiceLifecycleListener { car, connected ->
+    private val lifecycleListener = Car.CarServiceLifecycleListener { _, connected ->
         Log.d(TAG, "Car service lifecycle changed: connected=$connected")
-        if (connected) ensureConnected() else propertyManager = null
+        if (connected) {
+            ensureConnected()
+        } else {
+            propertyManager = null
+            supportCache.clear()
+        }
     }
 
     init {
@@ -74,101 +108,159 @@ class VehicleHalManager(context: Context) {
             return propertyManager != null
         }
 
-    private fun readFloat(propertyId: Int): Float? {
+    // ── Raw reads ────────────────────────────────────────────────────────────
+    // Deliberately uses the non-generic getProperty(propId, areaId) overload and
+    // casts the payload ourselves. The generic getProperty(Class<E>, ...) overload
+    // type-checks against the class we pass, and Kotlin's `Float::class.java`
+    // resolves to PRIMITIVE float.class, which never matches the boxed
+    // java.lang.Float the HAL returns — so that overload rejects even correctly
+    // typed properties. Casting the value avoids the trap entirely.
+
+    /**
+     * True when the property is supported AND this app holds its permission.
+     * Answered from [supportCache] after the first lookup per connection.
+     */
+    private fun isSupported(propertyId: Int): Boolean {
         ensureConnected()
+        val pm = propertyManager ?: return false
+
+        supportCache[propertyId]?.let { return it }
+
+        val supported = try {
+            // Returns null when unsupported or when we lack the read permission,
+            // so this is a permission check that costs no exception.
+            pm.getCarPropertyConfig(propertyId) != null
+        } catch (e: Exception) {
+            Log.d(TAG, "Config lookup $propertyId failed: ${e.message}")
+            false
+        }
+        supportCache[propertyId] = supported
+        return supported
+    }
+
+    private fun readValue(propertyId: Int, areaId: Int = AREA_GLOBAL): Any? {
+        if (!isSupported(propertyId)) return null
         val pm = propertyManager ?: return null
         return try {
-            val value = pm.getProperty(Float::class.java, propertyId, AREA_GLOBAL)
+            // getProperty(int, int) is <E> CarPropertyValue<E>, so E must be
+            // pinned explicitly; Any keeps the payload untyped for our casts.
+            val value: CarPropertyValue<Any>? = pm.getProperty<Any>(propertyId, areaId)
             if (value?.status != CarPropertyValue.STATUS_AVAILABLE) return null
             value.value
         } catch (e: Exception) {
-            Log.d(TAG, "Read float $propertyId failed: ${e.message}")
+            Log.d(TAG, "Read $propertyId (area $areaId) failed: ${e.message}")
             null
         }
     }
 
-    private fun readInt(propertyId: Int): Int? {
-        ensureConnected()
-        val pm = propertyManager ?: return null
-        return try {
-            val value = pm.getProperty(Int::class.java, propertyId, AREA_GLOBAL)
-            if (value?.status != CarPropertyValue.STATUS_AVAILABLE) return null
-            value.value
-        } catch (e: Exception) {
-            Log.d(TAG, "Read int $propertyId failed: ${e.message}")
-            null
-        }
-    }
+    private fun readFloat(propertyId: Int, areaId: Int = AREA_GLOBAL): Float? =
+        (readValue(propertyId, areaId) as? Number)?.toFloat()
 
-    private fun readString(propertyId: Int): String? {
-        ensureConnected()
-        val pm = propertyManager ?: return null
-        return try {
-            val value = pm.getProperty(String::class.java, propertyId, AREA_GLOBAL)
-            if (value?.status != CarPropertyValue.STATUS_AVAILABLE) return null
-            value.value
-        } catch (e: Exception) {
-            Log.d(TAG, "Read string $propertyId failed: ${e.message}")
-            null
-        }
-    }
+    private fun readInt(propertyId: Int, areaId: Int = AREA_GLOBAL): Int? =
+        (readValue(propertyId, areaId) as? Number)?.toInt()
 
-    /** Kilometers per hour, or null when unavailable. */
+    private fun readString(propertyId: Int, areaId: Int = AREA_GLOBAL): String? =
+        (readValue(propertyId, areaId) as? String)?.takeIf { it.isNotBlank() }
+
+    private fun readBoolean(propertyId: Int, areaId: Int = AREA_GLOBAL): Boolean? =
+        readValue(propertyId, areaId) as? Boolean
+
+    // ── Dynamic properties ───────────────────────────────────────────────────
+
+    /**
+     * Kilometers per hour, or null when unavailable.
+     * PERF_VEHICLE_SPEED is FLOAT in METER_PER_SEC. Negative while rolling
+     * backwards, so the magnitude is what we display.
+     */
     fun getSpeedKmh(): Float? {
-        val khm = readInt(VehiclePropertyIds.PERF_VEHICLE_SPEED) ?: return null
-        // VHAL exposes speed in hundredths of a km/h.
-        return khm / 100f
+        val metersPerSecond = readFloat(VehiclePropertyIds.PERF_VEHICLE_SPEED) ?: return null
+        return kotlin.math.abs(metersPerSecond) * 3.6f
     }
 
-    /** Engine RPM, or null when unavailable. */
-    fun getRpm(): Float? {
-        return readInt(VehiclePropertyIds.ENGINE_RPM)?.toFloat()
-    }
+    /** Engine RPM, or null when unavailable. ENGINE_RPM is FLOAT in RPM. */
+    fun getRpm(): Float? = readFloat(VehiclePropertyIds.ENGINE_RPM)
 
-    /** Fuel level 0.0..1.0, or null when unavailable. */
+    /**
+     * Fuel level as a 0.0..1.0 fraction, or null when unavailable.
+     * FUEL_LEVEL is FLOAT in MILLILITER, so it only becomes a percentage once
+     * divided by INFO_FUEL_CAPACITY (also millilitres).
+     */
     fun getFuelLevelFraction(): Float? {
-        val fraction = readFloat(VehiclePropertyIds.FUEL_LEVEL) ?: return null
-        return fraction.coerceIn(0f, 1f)
+        val currentMl = readFloat(VehiclePropertyIds.FUEL_LEVEL) ?: return null
+        val capacityMl = readFloat(VehiclePropertyIds.INFO_FUEL_CAPACITY)
+        if (capacityMl == null || capacityMl <= 0f) return null
+        return (currentMl / capacityMl).coerceIn(0f, 1f)
     }
 
-    /** Current gear as a display string, or null when unavailable. */
+    /**
+     * Battery state of charge as a 0.0..1.0 fraction, or null when unavailable.
+     * EV_BATTERY_LEVEL is FLOAT in WATT_HOUR, relative to
+     * INFO_EV_BATTERY_CAPACITY (also watt-hours).
+     */
+    fun getBatteryLevelFraction(): Float? {
+        val currentWh = readFloat(VehiclePropertyIds.EV_BATTERY_LEVEL) ?: return null
+        val capacityWh = readFloat(VehiclePropertyIds.INFO_EV_BATTERY_CAPACITY)
+        if (capacityWh == null || capacityWh <= 0f) return null
+        return (currentWh / capacityWh).coerceIn(0f, 1f)
+    }
+
+    /**
+     * Short display gear ("P", "R", "N", "D", "1".."9"), or null when unavailable.
+     *
+     * Prefers GEAR_SELECTION (what the driver picked, so it reports "D") over
+     * CURRENT_GEAR (the physically engaged ratio, which on the emulator reports
+     * 1st..5th and never GEAR_DRIVE). Avoids VehicleGear.toString(), which
+     * yields host-facing names like "GEAR_PARK" rather than a dashboard label.
+     */
     fun getGearString(): String? {
-        val gearInt = readInt(VehiclePropertyIds.CURRENT_GEAR) ?: return null
-        // VehicleGear.toString returns the human-readable gear name.
-        return if (gearInt == VehicleGear.GEAR_UNKNOWN) null else VehicleGear.toString(gearInt)
+        val raw = readInt(VehiclePropertyIds.GEAR_SELECTION)
+            ?: readInt(VehiclePropertyIds.CURRENT_GEAR)
+            ?: return null
+        return gearLabel(raw)
     }
 
-    /** True when the engine is running (ignition state ON/START), or null if unknown. */
+    private fun gearLabel(gear: Int): String? = when (gear) {
+        VehicleGear.GEAR_UNKNOWN -> null
+        VehicleGear.GEAR_PARK -> "P"
+        VehicleGear.GEAR_REVERSE -> "R"
+        VehicleGear.GEAR_NEUTRAL -> "N"
+        VehicleGear.GEAR_DRIVE -> "D"
+        VehicleGear.GEAR_FIRST -> "1"
+        VehicleGear.GEAR_SECOND -> "2"
+        VehicleGear.GEAR_THIRD -> "3"
+        VehicleGear.GEAR_FOURTH -> "4"
+        VehicleGear.GEAR_FIFTH -> "5"
+        VehicleGear.GEAR_SIXTH -> "6"
+        VehicleGear.GEAR_SEVENTH -> "7"
+        VehicleGear.GEAR_EIGHTH -> "8"
+        VehicleGear.GEAR_NINTH -> "9"
+        else -> null
+    }
+
+    /** True when the engine is running (ignition ON/START), or null if unknown. */
     fun isEngineOn(): Boolean? {
         val ignition = readInt(VehiclePropertyIds.IGNITION_STATE) ?: return null
         return ignition == VehicleIgnitionState.ON || ignition == VehicleIgnitionState.START
     }
 
-    /** Odometer in kilometers, or null when unavailable. */
-    fun getOdometerKm(): Float? {
-        val meters = readInt(VehiclePropertyIds.PERF_ODOMETER) ?: return null
-        return meters / 1000f
-    }
+    /** Odometer in kilometers, or null when unavailable. PERF_ODOMETER is already KILOMETER. */
+    fun getOdometerKm(): Float? = readFloat(VehiclePropertyIds.PERF_ODOMETER)
 
-    /** Battery state of charge 0.0..1.0, or null when unavailable. */
-    fun getBatteryLevelFraction(): Float? {
-        val fraction = readFloat(VehiclePropertyIds.EV_BATTERY_LEVEL) ?: return null
-        return fraction.coerceIn(0f, 1f)
-    }
+    /** True when the parking brake is engaged, or null when unavailable. */
+    fun isParkingBrakeOn(): Boolean? = readBoolean(VehiclePropertyIds.PARKING_BRAKE_ON)
 
-    /** True when the driver's seatbelt is buckled, or null when unavailable. */
-    fun isDriverSeatbeltOn(): Boolean? {
-        // SEAT_BELT_BUCKLED is a bitfield where bit0 = driver.
-        val state = readInt(VehiclePropertyIds.SEAT_BELT_BUCKLED) ?: return null
-        return (state and 0x1) == 0x1
-    }
+    /**
+     * True when the driver's seatbelt is buckled, or null when unavailable.
+     * SEAT_BELT_BUCKLED is BOOLEAN with SEAT area type — it must be read per
+     * seat area (ROW_1_LEFT for the driver), never at AREA_GLOBAL.
+     */
+    fun isDriverSeatbeltOn(): Boolean? =
+        readBoolean(VehiclePropertyIds.SEAT_BELT_BUCKLED, AREA_DRIVER_SEAT)
 
     // ── Vehicle INFO properties ──────────────────────────────────────────────
-    // Unlike the speed/RPM/fuel/gear properties above, these INFO_* properties
-    // are gated by the install-time (normal) permission android.car.permission
-    // .CAR_INFO, which a third-party app IS granted. That means they read real,
-    // live values from the VHAL (e.g. on the emulator: make/model/vin/capacity).
-    // These are the ones we can actually demo as "real" VHAL data.
+    // Gated by android.car.permission.CAR_INFO, which is protectionLevel:normal
+    // and therefore granted to a third-party app at install. These read real,
+    // live VHAL values on the emulator ("Toy Vehicle" / "Speedy Model" / 2023).
 
     /** Vehicle make, e.g. "Toy Vehicle", or null when unavailable. */
     fun getMake(): String? = readString(VehiclePropertyIds.INFO_MAKE)
@@ -176,7 +268,7 @@ class VehicleHalManager(context: Context) {
     /** Vehicle model, e.g. "Speedy Model", or null when unavailable. */
     fun getModel(): String? = readString(VehiclePropertyIds.INFO_MODEL)
 
-    /** Vehicle VIN, or null when unavailable. */
+    /** Vehicle VIN, or null. Needs CAR_IDENTIFICATION (signature|privileged). */
     fun getVin(): String? = readString(VehiclePropertyIds.INFO_VIN)
 
     /** Model year as an Int, or null when unavailable. */
@@ -194,11 +286,44 @@ class VehicleHalManager(context: Context) {
         return wh / 1000f
     }
 
+    /**
+     * Logs which properties this install can actually read. Handy on the
+     * emulator to see at a glance what is live VHAL vs. simulated fallback.
+     */
+    fun logAvailability() {
+        if (!isAvailable) {
+            Log.d(TAG, "Availability: car service not connected — all values simulated")
+            return
+        }
+        val props = listOf(
+            "PERF_VEHICLE_SPEED" to VehiclePropertyIds.PERF_VEHICLE_SPEED,
+            "ENGINE_RPM" to VehiclePropertyIds.ENGINE_RPM,
+            "FUEL_LEVEL" to VehiclePropertyIds.FUEL_LEVEL,
+            "EV_BATTERY_LEVEL" to VehiclePropertyIds.EV_BATTERY_LEVEL,
+            "PERF_ODOMETER" to VehiclePropertyIds.PERF_ODOMETER,
+            "GEAR_SELECTION" to VehiclePropertyIds.GEAR_SELECTION,
+            "CURRENT_GEAR" to VehiclePropertyIds.CURRENT_GEAR,
+            "IGNITION_STATE" to VehiclePropertyIds.IGNITION_STATE,
+            "PARKING_BRAKE_ON" to VehiclePropertyIds.PARKING_BRAKE_ON,
+            "INFO_MAKE" to VehiclePropertyIds.INFO_MAKE,
+            "INFO_MODEL" to VehiclePropertyIds.INFO_MODEL,
+            "INFO_MODEL_YEAR" to VehiclePropertyIds.INFO_MODEL_YEAR,
+            "INFO_VIN" to VehiclePropertyIds.INFO_VIN,
+            "INFO_FUEL_CAPACITY" to VehiclePropertyIds.INFO_FUEL_CAPACITY
+        )
+        props.forEach { (name, id) ->
+            Log.d(TAG, "Availability: %-20s %s".format(
+                name, if (isSupported(id)) "LIVE VHAL" else "blocked -> simulated"
+            ))
+        }
+    }
+
     fun release() {
         try {
             car?.disconnect()
             car = null
             propertyManager = null
+            supportCache.clear()
         } catch (e: Exception) {
             Log.d(TAG, "Release failed: ${e.message}")
         }
