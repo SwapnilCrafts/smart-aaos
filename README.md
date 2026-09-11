@@ -200,9 +200,11 @@ More commands, including MediaStore on a multi-user head unit, are in
 - [x] AIDL vehicle service boundary
 - [x] Surface-rendered map with safe-area insets and back handling
 - [x] Navigation hand-off to the platform maps app
+- [x] `CarUxRestrictions` listener (diagnostics only — reports another display)
 - [x] Simulation harness for faults and alerts
 - [x] `CarPropertyManager.registerCallback` subscriptions instead of polling
-- [ ] `CarAudioManager`: audio zones and volume groups
+- [x] Car audio: explicit `AudioAttributes` routing + capability report
+      (zones and volume groups are `signature|privileged` — see FINDINGS.md)
 - [ ] Gauges on `GridTemplate` for legibility
 - [ ] Privileged system app install, for real speed / RPM / fuel
 - [ ] Custom vendor VHAL property implemented in AOSP (C++)

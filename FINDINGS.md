@@ -306,6 +306,93 @@ permissions such as `READ_MEDIA_AUDIO` must be requested through
 
 ---
 
+## 9. Car audio: one public method, and that is it
+
+**Symptom.** "Multi-zone audio" is a common automotive requirement, but none of
+the zone or volume APIs are reachable.
+
+**Verification.**
+
+```bash
+adb shell pm list permissions -f | grep -A6 "CAR_CONTROL_AUDIO"
+javap -classpath .../android.car.jar android.car.media.CarAudioManager
+```
+
+Both `CAR_CONTROL_AUDIO_VOLUME` and `CAR_CONTROL_AUDIO_SETTINGS` are
+`signature|privileged`. The *public* `CarAudioManager` has exactly three
+methods — `isAudioFeatureEnabled`, `registerCarVolumeCallback`,
+`unregisterCarVolumeCallback`. Audio zones, volume groups,
+`getVolumeGroupCount` and `setGroupVolume` are `@SystemApi` and absent from the
+SDK jar entirely.
+
+Of those three, only the first actually works for a third-party app:
+
+```
+audio feature DYNAMIC_ROUTING      true
+audio feature VOLUME_GROUP_MUTING  true
+audio feature VOLUME_GROUP_EVENTS  true
+audio feature AUDIO_MIRRORING      false
+audio feature OEM_AUDIO_SERVICE    false
+registerCarVolumeCallback rejected: SecurityException:
+    requires permission android.car.permission.CAR_CONTROL_AUDIO_VOLUME
+```
+
+Even *observing* volume is gated.
+
+**Conclusion.** The app-side half of car audio is not zone control — it is
+declaring the correct `AudioAttributes.USAGE_*`, because the car's audio policy
+is what maps a usage onto a bus, zone and volume group. An `ExoPlayer` built
+without audio attributes takes the default route; setting `USAGE_MEDIA` +
+`CONTENT_TYPE_MUSIC` explicitly puts it on the media bus that the media volume
+knob controls. Audio focus (including `LOSS_TRANSIENT_CAN_DUCK`) is the other
+half, and needs no permission.
+
+---
+
+## 10. CarUxRestrictionsManager needs a retry, and reports the wrong display
+
+**Symptom one.** `getCarManager` returns null for the UX restriction service,
+even though the car service is connected and the same pattern works for
+`CarPropertyManager`.
+
+```
+Car lifecycle: connected=true
+String-keyed lookup returned: null
+Manager not ready, retry 1/4
+Listening for UX restriction changes     <- succeeds on the retry
+```
+
+Both the `String`-keyed and the typed `getCarManager(Class)` overload return
+null at the moment the connection callback fires. A retry ~1.5 s later
+succeeds. `CarPropertyManager` does not need this, so it is manager-specific.
+
+**Symptom two — the more important one.** The values do not belong to the
+display the app is on.
+
+```
+# platform, while parked:
+Display id: 0  UXR: DO: false  UxR: 0      <- the app runs here
+Display id: 3  UXR: DO: true   UxR: 511    <- the cluster
+
+# what the app's own manager reports:
+UXR: requiresDO=true flags=0x1ff maxItems=21     (0x1ff == 511)
+```
+
+And when display 0's restrictions genuinely changed (`DO: true UxR: 16` after
+moving to IDLING), the app's listener delivered **no event at all**.
+
+**Conclusion.** On this platform the manager resolves to a different display
+and does not deliver change events, so gating UI on
+`isRequiresDistractionOptimization()` would disable the app while parked. Read
+it for diagnostics; do not drive behaviour from it without first confirming it
+tracks your own display. Nothing is lost by ignoring it — the host enforces the
+real restrictions itself and will replace the app outright when it must.
+
+`getMaxCumulativeContentItems()` returned 21, which is a genuinely useful
+number when deciding how much to put in a `ListTemplate`.
+
+---
+
 ## Command reference
 
 ```bash

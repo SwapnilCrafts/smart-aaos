@@ -20,15 +20,19 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.media.MediaBrowserServiceCompat
 import androidx.media.session.MediaButtonReceiver
+import androidx.media3.common.AudioAttributes as Media3AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.swapnil.smart.aaos.ui.NavigationCallback
+import com.swapnil.smart.aaos.vehicle.CarAudioInfo
 
 class SmartMusicService : MediaBrowserServiceCompat() {
 
     private lateinit var session: MediaSessionCompat
     private lateinit var exoPlayer: ExoPlayer
+    private lateinit var carAudioInfo: CarAudioInfo
     private lateinit var audioManager: AudioManager        // ✅ add
     private lateinit var audioFocusRequest: AudioFocusRequest // ✅ add
     private var currentIndex = 0
@@ -196,8 +200,33 @@ class SmartMusicService : MediaBrowserServiceCompat() {
         // 0. Populate the song list first - everything below indexes into it.
         SongRepository.load(this)
 
-        // 1. Create ExoPlayer
-        exoPlayer = ExoPlayer.Builder(this).build()
+        // 1. Create ExoPlayer.
+        //
+        // The audio attributes matter more on AAOS than on a phone: the car's
+        // audio policy routes each AudioAttributes.USAGE_* onto a different
+        // bus, zone and volume group, so an unlabelled stream is at the mercy
+        // of the default route. USAGE_MEDIA + CONTENT_TYPE_MUSIC puts this on
+        // the media bus, which is what the volume knob for media controls.
+        //
+        // handleAudioFocus = false on purpose: focus is requested explicitly
+        // in requestAudioFocus() so the duck/pause/resume behaviour is visible
+        // and testable. Letting the player manage focus as well would mean two
+        // components fighting over the same AudioFocusRequest.
+        exoPlayer = ExoPlayer.Builder(this)
+            .setAudioAttributes(
+                Media3AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                    .build(),
+                /* handleAudioFocus = */ false
+            )
+            // Pause instead of playing to nobody when the audio route drops.
+            .setHandleAudioBecomingNoisy(true)
+            .build()
+
+        carAudioInfo = CarAudioInfo(this)
+        carAudioInfo.logCapabilities()
+        carAudioInfo.startObservingVolume()
 
         // 2. Listen for ExoPlayer state changes
         exoPlayer.addListener(object : Player.Listener {
@@ -286,6 +315,7 @@ class SmartMusicService : MediaBrowserServiceCompat() {
     }
 
     override fun onDestroy() {
+        if (::carAudioInfo.isInitialized) carAudioInfo.release()
         stopProgressTimer()
         abandonAudioFocus()                 // ✅ release on destroy
         exoPlayer.release()

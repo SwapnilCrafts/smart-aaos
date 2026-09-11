@@ -21,6 +21,7 @@ import com.swapnil.smart.aaos.utils.AlertRepository
 import com.swapnil.smart.aaos.utils.AlbumArtLoader
 import com.swapnil.smart.aaos.utils.CarLocationProvider
 import com.swapnil.smart.aaos.utils.VehicleAlert
+import com.swapnil.smart.aaos.vehicle.UxRestrictionsRepository
 import com.swapnil.smart.aaos.vehicle.VehicleRepository
 import com.swapnil.smart.aaos.viewmodel.CarViewModelStore
 import com.swapnil.smart.aaos.viewmodel.VehicleViewModel
@@ -31,6 +32,7 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
     private val viewModel = CarViewModelStore.get(VehicleViewModel::class.java)
 
     private var previousMoving: Boolean? = null
+    private var previousRestricted: Boolean? = null
     private var previousAlert: VehicleAlert? = null
     private var previousSpeed = Float.MIN_VALUE
     private var previousGeo: String = ""
@@ -40,6 +42,7 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
     init {
         VehicleRepository.connect(carContext)
         AlertRepository.start()
+        UxRestrictionsRepository.start(carContext)
         ensureSongLibrary()
         // Start location here as well as in NavigationScreen so the Go tab can
         // show real distances before the map has ever been opened.
@@ -52,6 +55,12 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
         viewModel.isCarMoving.observe(this) {
             if (it != previousMoving) {
                 previousMoving = it
+                invalidate()
+            }
+        }
+        viewModel.isInteractionRestricted.observe(this) {
+            if (it != previousRestricted) {
+                previousRestricted = it
                 invalidate()
             }
         }
@@ -179,7 +188,7 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
                         if (isMoving) "Park to open the cluster" else "Open the full cluster"
                     )
                     .setOnClickListener {
-                        if (!isMoving) screenManager.push(DashboardScreen(carContext))
+                        if (!isRestricted()) screenManager.push(DashboardScreen(carContext))
                     }
                     .build()
             )
@@ -194,6 +203,10 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
             .build()
     }
 
+
+    /** True when interactive rows should be inert: platform restriction or motion. */
+    private fun isRestricted(): Boolean =
+        viewModel.isInteractionRestricted.value == true
 
     private fun buildMusicTab(isMoving: Boolean): Template {
         val listBuilder = ItemList.Builder()
@@ -210,7 +223,7 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
                 .setTitle(song.title)
                 .addText("${song.artist}  ·  ${song.album}")
                 .setImage(icon)
-            if (!isMoving) {
+            if (!isRestricted()) {
                 rowBuilder.setOnClickListener {
                     screenManager.push(PlayerScreen(carContext, song, {}))
                 }
@@ -270,9 +283,7 @@ class HomeScreen(carContext: CarContext) : Screen(carContext) {
                     .setTitle("Dashboard")
                     .addText("Full gauge cluster")
                     .setOnClickListener {
-                        if (viewModel.isCarMoving.value != true) {
-                            screenManager.push(DashboardScreen(carContext))
-                        }
+                        if (!isRestricted()) screenManager.push(DashboardScreen(carContext))
                     }
                     .build()
             )

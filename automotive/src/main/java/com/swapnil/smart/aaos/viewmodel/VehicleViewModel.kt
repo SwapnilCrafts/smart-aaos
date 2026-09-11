@@ -5,6 +5,7 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import com.swapnil.smart.aaos.utils.AlertRepository
 import com.swapnil.smart.aaos.utils.VehicleAlert
+import com.swapnil.smart.aaos.vehicle.UxRestrictionsRepository
 import com.swapnil.smart.aaos.vehicle.VehicleRepository
 
 /**
@@ -50,6 +51,30 @@ class VehicleViewModel : ViewModel() {
     private val _isCarMoving = MutableLiveData(false)
     val isCarMoving: LiveData<Boolean> = _isCarMoving
 
+    /**
+     * The host's reported distraction-optimisation requirement. Exposed for
+     * diagnostics only - see [isInteractionRestricted] for why it is not used
+     * to gate anything.
+     */
+    private val _requiresDistractionOptimization = MutableLiveData(false)
+    val requiresDistractionOptimization: LiveData<Boolean> = _requiresDistractionOptimization
+
+    /**
+     * Whether interactive features should be withheld.
+     *
+     * Driven by vehicle motion only. It deliberately does NOT use
+     * [requiresDistractionOptimization]: on this platform the app's
+     * CarUxRestrictionsManager resolves to a different display than the one
+     * the app is on (it reports 0x1ff / FULLY_RESTRICTED while display 0 is
+     * unrestricted) and never delivers change events, so gating on it would
+     * disable the UI while parked. See FINDINGS.md.
+     *
+     * The host enforces the real restrictions itself regardless, so nothing is
+     * lost by not duplicating them here.
+     */
+    private val _isInteractionRestricted = MutableLiveData(false)
+    val isInteractionRestricted: LiveData<Boolean> = _isInteractionRestricted
+
     private val onVehicleData: () -> Unit = { publish() }
     private val onConnectionChanged: () -> Unit = {
         _isConnected.value = VehicleRepository.isConnected
@@ -58,11 +83,13 @@ class VehicleViewModel : ViewModel() {
     private val onAlertChanged: () -> Unit = {
         _currentAlert.value = AlertRepository.currentAlert
     }
+    private val onRestrictionsChanged: () -> Unit = { publishRestrictions() }
 
     init {
         VehicleRepository.observe(onVehicleData)
         VehicleRepository.observeConnection(onConnectionChanged)
         AlertRepository.observe(onAlertChanged)
+        UxRestrictionsRepository.observe(onRestrictionsChanged)
 
         // Seed from whatever is already known, in case the service connected
         // before this ViewModel existed.
@@ -81,6 +108,14 @@ class VehicleViewModel : ViewModel() {
         _odometer.value = s.odometerKm
         _isCarMoving.value = s.speedKmh > MOVING_THRESHOLD_KMH
         _currentAlert.value = AlertRepository.currentAlert
+        publishRestrictions()
+    }
+
+    private fun publishRestrictions() {
+        _requiresDistractionOptimization.value =
+            UxRestrictionsRepository.requiresDistractionOptimization
+        _isInteractionRestricted.value =
+            VehicleRepository.snapshot.speedKmh > MOVING_THRESHOLD_KMH
     }
 
     fun simulateDriving() = VehicleRepository.simulateDriving()
@@ -92,6 +127,7 @@ class VehicleViewModel : ViewModel() {
         VehicleRepository.removeObserver(onVehicleData)
         VehicleRepository.removeConnectionObserver(onConnectionChanged)
         AlertRepository.removeObserver(onAlertChanged)
+        UxRestrictionsRepository.removeObserver(onRestrictionsChanged)
     }
 
     private companion object {
