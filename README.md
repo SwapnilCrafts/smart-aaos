@@ -14,6 +14,9 @@ Two companion documents:
   documentation implies.
 - **[GUIDE.md](GUIDE.md)** — what each file does, and every command needed to
   build, run and test the app on an emulator.
+- **[INTERVIEW.md](INTERVIEW.md)** — AAOS/Android Auto interview questions,
+  basic to advanced, marked by whether the answer is backed by work in this
+  repo or by reading only.
 
 ---
 
