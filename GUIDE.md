@@ -10,7 +10,8 @@ what was built, where it lives, and how to test it again.
 - [3. What each file does](#3-what-each-file-does)
 - [4. Commands](#4-commands)
 - [5. Reading the real VHAL source](#5-reading-the-real-vhal-source)
-- [6. Where things went wrong](#6-where-things-went-wrong)
+- [6. Profiling with Perfetto](#6-profiling-with-perfetto)
+- [7. Where things went wrong](#7-where-things-went-wrong)
 
 ---
 
@@ -19,6 +20,7 @@ what was built, where it lives, and how to test it again.
 | Module | Runs on | Status |
 |---|---|---|
 | `automotive` | the car itself (AAOS head unit) | built and tested |
+| `systemui-overlay` | an RRO that restyles Car System UI | built and verified |
 | `app` | a phone, projected to the car screen (Android Auto) | untested, needs a physical phone + DHU |
 
 Both use the same **Car App Library**, so the screen code looks the same. The
@@ -70,6 +72,7 @@ thread, and a slow client must never be able to block it.
 | File | What it does |
 |---|---|
 | `VehicleHalManager.kt` | Talks to the car. Reads VHAL properties, converts units (m/s to km/h, millilitres to percent), subscribes to 9 properties, caches values. Returns `null` when a property is unreadable instead of throwing. |
+| `VendorProperties.kt` | The custom vendor property IDs, with the bit-field arithmetic (group \| area \| type \| id) explained. |
 | `VehiclePermissions.kt` | Lists which car permissions are `normal`, `dangerous` and `privileged`, and which are still missing. Added because the app declared permissions it never requested. |
 | `VehicleDataService.kt` | The service other code binds to. Serves real VHAL values when available, simulated ones when not. Broadcasts to all clients on change. |
 | `VehicleRepository.kt` | Client side of the service. Binds, registers the callback, keeps the latest `VehicleSnapshot`. |
@@ -83,6 +86,7 @@ thread, and a slow client must never be able to block it.
 | `HomeScreen.kt` | The four tabs (Drive, Music, Go, Info). Also starts everything: service binding, alerts, permissions, location. |
 | `DashboardScreen.kt` | The gauge cluster. `GridTemplate` with six large gauges. Blocked while moving. |
 | `DiagnosticsScreen.kt` | Vehicle info (make, model, VIN) and system health. |
+| `VendorPropertiesScreen.kt` | Reads the three custom vendor properties; drive mode is tappable, which writes back to the VHAL. |
 | `SimulationScreen.kt` | Debug screen to trigger faults and alerts by hand. Added because six simulate functions existed with no way to reach them. |
 | `NavigationScreen.kt` | Map screen with Mumbai destinations, real distances, working back button, hand-off to the car's maps app. |
 | `MapSurfaceRenderer.kt` | Draws the map onto the car's surface, respecting the safe area the host reserves. |
@@ -117,6 +121,9 @@ thread, and a slow client must never be able to block it.
 | File | What it does |
 |---|---|
 | `install-as-privileged-app.sh` | Puts the app inside the car's OS so it can read RPM, odometer and VIN. |
+| `install-systemui-overlay.sh` | Builds, platform-signs and installs the Car System UI overlay. |
+| `capture-perfetto-startup.sh` | Records a startup trace for profiling. |
+| `perfetto-startup.cfg` | Which data sources the trace records. |
 | `revert-privileged-app.sh` | Undoes the above. |
 | `privapp-permissions-*.xml` | The allowlist saying which privileged permissions the app may hold. |
 
@@ -271,6 +278,39 @@ startup. Same persistence caveat as above.
 See them in the app at **Info → Vendor Properties**. Drive mode is tappable,
 which writes back to the VHAL.
 
+### Car System UI overlay (RRO)
+
+```bash
+# build, platform-sign, install and enable
+./tools/install-systemui-overlay.sh
+
+# toggle without reinstalling
+adb shell cmd overlay disable --user 0 com.swapnil.smartaaos.systemui.overlay
+adb shell cmd overlay enable  --user 0 com.swapnil.smartaaos.systemui.overlay
+
+# what overlays exist and which are on
+adb shell cmd overlay list com.android.systemui
+
+# find resource names you can override, by reading one that already ships
+adb pull /product/overlay/googlecarui.theme.orange-com-android-systemui.apk
+aapt2 dump resources googlecarui.theme.orange-com-android-systemui.apk
+```
+
+`--user 0` matters: CarSystemUI runs as user 0, not the driver user 10. Car
+Launcher is the opposite. See [FINDINGS.md](FINDINGS.md) finding 14.
+
+### Profiling
+
+```bash
+# capture a startup trace, then open it at https://ui.perfetto.dev
+./tools/capture-perfetto-startup.sh /tmp/trace.pftrace
+
+# is the package AOT-compiled? an APK hand-pushed into priv-app is NOT,
+# which costs ~40% of main-thread startup time - see section 6
+adb shell dumpsys package dexopt | grep -A3 com.swapnil.smart.aaos
+adb shell cmd package compile -m speed -f com.swapnil.smart.aaos
+```
+
 ### Driver distraction ("can't use this while driving")
 
 ```bash
@@ -369,7 +409,75 @@ they compile through Soong against AOSP's headers.
 
 ---
 
-## 6. Where things went wrong
+## 6. Profiling with Perfetto
+
+`logcat` tells you *what happened*. `dumpsys` tells you *the state now*.
+Perfetto tells you *who ran when, and for how long* — which is the only one of
+the three that can explain a stall, a dropped frame, or slow startup.
+`systrace` is the deprecated predecessor; perfetto replaced it.
+
+```bash
+./tools/capture-perfetto-startup.sh /tmp/trace.pftrace
+```
+
+The script's ordering matters: perfetto starts recording **first**, then the
+app is force-stopped and launched inside the trace window. Launch first and
+you trace a warm app, which is a different thing.
+
+Open the result at **https://ui.perfetto.dev** — drag the file in; it is
+parsed locally in the browser, nothing is uploaded.
+
+### The config is the skill
+
+`tools/perfetto-startup.cfg` picks the data sources. The automotive-relevant
+part is the atrace categories:
+
+| Category | Why |
+|---|---|
+| `binder_driver`, `binder_lock` | in AAOS nearly everything is another process — CarService, the VHAL, the templates host — so app latency is usually binder latency |
+| `am`, `wm`, `view`, `gfx` | activity start, windows, frame rendering |
+| `dalvik` | GC pauses, a classic cause of dropped frames |
+| `android.log` data source | puts logcat on the same timeline as the scheduling data |
+
+### Reading it with SQL instead of by eye
+
+Perfetto traces are queryable. This is faster than scrolling and is how you
+answer "what blocked the main thread":
+
+```bash
+python3 -m venv .venv && ./.venv/bin/pip install perfetto
+```
+
+```python
+from perfetto.trace_processor import TraceProcessor
+tp = TraceProcessor(trace='/tmp/trace.pftrace')
+
+# slowest slices on OUR main thread
+for r in tp.query("""
+  select s.name, s.dur/1e6 as ms
+  from slice s join thread_track tt on s.track_id = tt.id
+  join thread t using(utid) join process p using(upid)
+  where p.name like '%smart.aaos%' and t.is_main_thread = 1
+  order by s.dur desc limit 12
+"""):
+    print(f"{r.ms:8.2f} ms  {r.name}")
+```
+
+**Always filter on `is_main_thread`.** Sorting slices by raw duration will
+point you at the wrong thing: the two biggest slices in this app are ~900 ms
+of emoji font loading that runs entirely on a background thread and blocks
+nothing. Total time is not blocking time.
+
+### What this found
+
+That the privileged install had made startup ~40% slower, because an APK
+pushed into `/system/priv-app` never gets dexopt and runs interpreted. Fixed
+with `cmd package compile -m speed -f <pkg>`. Full numbers in
+[FINDINGS.md](FINDINGS.md) finding 13.
+
+---
+
+## 7. Where things went wrong
 
 Short version. Full detail with proof is in [FINDINGS.md](FINDINGS.md).
 

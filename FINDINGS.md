@@ -704,6 +704,259 @@ value, or real hardware and CAN traffic behind it — not to exist.
 
 ---
 
+## 13. The privileged install made startup 40% slower
+
+Found with Perfetto, and it is a direct consequence of finding 11.
+
+**Symptom.** Nothing visible — the app worked. It showed up only in a trace.
+
+```bash
+./tools/capture-perfetto-startup.sh /tmp/before.pftrace
+```
+
+The main thread's slowest slices were all dex loading, and the filenames say
+where from:
+
+```
+178.09 ms  /system/priv-app/SmartAAOS/SmartAAOS.apk
+169.27 ms  OpenDexFilesFromOat(/system/priv-app/SmartAAOS/SmartAAOS.apk)
+158.68 ms  Open dex file /system/priv-app/SmartAAOS/SmartAAOS.apk
+ 90.71 ms  Verify dex file /system/priv-app/SmartAAOS/SmartAAOS.apk
+```
+
+Plus 2,430 ms of `Compiling baseline` across 8,608 slices — that is the JIT
+compiling at runtime, work that should have happened at install time.
+
+**Cause.** `adb push` into `/system/priv-app/` is a file copy. It does not run
+dexopt, because dexopt is something `pm install` does. So the package had no
+AOT artifacts at all:
+
+```bash
+adb shell dumpsys package dexopt | grep -A3 com.swapnil.smart.aaos
+#   path: /system/priv-app/SmartAAOS/SmartAAOS.apk
+#     arm64: [status=run-from-apk] [reason=unknown] [primary-abi]
+#       [location is error]
+```
+
+`status=run-from-apk` and `location is error`, and no `.odex`/`.vdex` beside
+the APK. The app was running interpreted, verifying its dex on every cold
+start.
+
+**Fix.** Compile it, which is what an OEM build does with `dex2oat` at build
+time:
+
+```bash
+adb shell cmd package compile -m speed -f com.swapnil.smart.aaos
+#   arm64: [status=verify] [reason=cmdline]
+#     [location is /data/dalvik-cache/arm64/system@priv-app@...@classes.dex]
+```
+
+**Measured, same config, one run each:**
+
+| Slice | Before | After |
+|---|---|---|
+| `bindApplication` | 366.1 ms | **148.1 ms** |
+| `activityStart` | 282.4 ms | **136.5 ms** |
+| `Open dex file` | 158.7 ms | **10.5 ms** |
+| `Verify dex file` | 156.8 ms | **0.0 ms** |
+| `OpenDexFilesFromOat` | 169.3 ms | **34.8 ms** |
+| `Compiling baseline` | 2430.7 ms | 1627.7 ms |
+| main-thread top-level slice time | 2084.9 ms | **1254.9 ms** |
+
+Roughly 40% off main-thread startup work, and dex verification eliminated.
+Single runs on an emulator with a debug APK, so treat the numbers as
+indicative of the mechanism rather than a benchmark.
+
+### A thing I got wrong while reading the trace
+
+The two largest slices in the whole process were emoji font work:
+
+```
+455.39 ms  EmojiCompat.FontRequestEmojiCompatConfig.buildTypeface
+435.97 ms  EmojiCompat.MetadataRepo.create
+```
+
+Nearly 900 ms, and my first instinct was that this was the startup problem.
+It is not. Querying which thread they were on:
+
+```sql
+select s.name, s.dur/1e6 ms, t.is_main_thread
+from slice s join thread_track tt on s.track_id=tt.id
+join thread t using(utid) join process p using(upid)
+where p.name like '%smart.aaos%' and s.name like '%Emoji%'
+```
+
+`is_main_thread = 0` — all of it runs on a dedicated `EmojiCompatInit`
+thread, with only 34 ms of `EmojiCompatInitializer` on main. Big, but off the
+critical path.
+
+This is the whole reason to use a profiler rather than a timer: **total time
+is not the same as blocking time**, and a list of slices sorted by duration
+will point you at the wrong thing if you ignore which thread they are on.
+
+### Why this matters in a car more than on a phone
+
+A phone app starting 200 ms slower is invisible. A head unit has a
+time-to-first-frame budget measured from ignition, because the driver expects
+the screen up almost immediately, and the reversing camera and media surface
+compete for the same early-boot CPU. Startup work on the critical path is a
+requirement, not a nicety — which is why `systrace`/`perfetto` appear by name
+in AAOS job specs.
+
+**Conclusion.** The mechanism is worth remembering beyond this project: any
+APK placed into a system partition by hand has no dexopt artifacts, so it
+runs interpreted until something compiles it. That applies to every
+`/system/priv-app` install done outside a build, which is exactly how
+developers test privileged apps.
+
+---
+
+## 14. Customising Car System UI without an AOSP build
+
+**Why this mattered.** Across ten Bengaluru AAOS job descriptions, HMI and
+System UI work appeared in five — more than Car Service (three) or C++
+(three). It was the largest gap in this project, and the obvious assumption is
+that it needs a platform build on Linux. It does not.
+
+**What an RRO is.** A Runtime Resource Overlay is an APK with no code that
+replaces another package's resources at runtime. It is how an OEM rebrands the
+car while leaving AOSP untouched, so their look survives Android upgrades:
+
+```xml
+<manifest package="com.swapnil.smartaaos.systemui.overlay">
+    <application android:hasCode="false" />
+    <overlay
+        android:targetPackage="com.android.systemui"
+        android:priority="2"
+        android:isStatic="false" />
+</manifest>
+```
+
+That, plus a `colors.xml`, is the entire module. Note CarSystemUI is still
+called `com.android.systemui` on AAOS.
+
+### Finding the resource names, rather than guessing
+
+An overlay matches resources **by name**, so a typo silently overlays nothing.
+The reliable way to discover valid names is to read an overlay that already
+ships on the device:
+
+```bash
+adb pull /product/overlay/googlecarui.theme.orange-com-android-systemui.apk
+aapt2 dump resources googlecarui.theme.orange-com-android-systemui.apk
+# resource 0x7f010000 color/car_background
+# resource 0x7f01000a color/car_primary
+# ... 163 resources in total
+```
+
+The device also ships dozens of *disabled* overlays, so the mechanism can be
+proven before writing anything:
+
+```bash
+adb shell cmd overlay list com.android.systemui
+# [ ] com.android.systemui.googlecarui.theme.orange.rro     <- disabled
+adb shell cmd overlay enable --user 0 com.android.systemui.googlecarui.theme.orange.rro
+```
+
+That turned the system bar accent from blue to orange, which confirmed the
+pipeline worked before any code existed.
+
+### Trap 1: the overlay must be enabled for the user its target runs as
+
+The driver is user 10, but CarSystemUI is not:
+
+```bash
+adb shell 'ps -A -o USER,PID,NAME | grep systemui'
+# u0_a223  4350  com.android.systemui        <- user 0
+```
+
+Enabling for user 10 fails with `SecurityException: Unable to retrieve overlay
+information`. Car Launcher, by contrast, *is* user 10. So the right user
+differs per target.
+
+This is the AAOS multi-user trap for the third time in this project, after
+permissions (finding 1) and MediaStore (finding 8). The lesson has stopped
+being "remember user 10" and become **"ask which user this component runs
+as"**.
+
+### Trap 2: a third-party overlay cannot touch CarSystemUI
+
+Installing the overlay debug-signed fails with a precise and useful error:
+
+```
+Overlay com.swapnil.smartaaos.systemui.overlay and target
+com.android.systemui signed with different certificates, and the overlay
+lacks <overlay android:targetName>
+```
+
+That names all three legitimate routes:
+
+1. sign with the **same certificate as the target**
+2. the target declares `<overlayable name="...">` and the overlay names it
+   with `android:targetName`
+3. be **preinstalled** in a trusted partition by the system image
+
+Route 2 is closed, and this is checkable rather than assumed:
+
+```bash
+adb pull /system_ext/priv-app/CarSystemUI/CarSystemUI.apk
+aapt2 dump overlayable CarSystemUI.apk     # prints nothing
+```
+
+CarSystemUI exposes no overlayable resources, so it is not designed to be
+overlaid by third parties at all — only by whoever builds the image.
+
+### The way through: the emulator is a test-keys build
+
+```bash
+adb shell getprop ro.build.tags
+# test-keys
+```
+
+`test-keys` means the image is signed with the **public** AOSP platform
+certificate, which lives in the AOSP `build` repo. So route 1 is available on
+a development device, and needs a 1 MB sparse clone rather than a platform
+build:
+
+```bash
+git clone --depth=1 --filter=blob:none --sparse \
+  -b android15-automotiveos-release \
+  https://android.googlesource.com/platform/build
+git -C build sparse-checkout set target/product/security
+
+apksigner sign \
+  --key  build/target/product/security/platform.pk8 \
+  --cert build/target/product/security/platform.x509.pem \
+  systemui-overlay-debug.apk
+# Signer #1 certificate DN: CN=Android, O=Android, L=Mountain View...
+```
+
+It then installs, and `cmd overlay enable --user 0` applies it.
+
+Worth being clear about what this is and is not: on a production car the
+platform key is the OEM's secret, and an overlay ships inside the signed
+system image. Platform-signing against the public test keys works because a
+development image trusts a publicly known certificate — which is precisely why
+`test-keys` builds are never shipped.
+
+**Result**, verified with screenshots at each stage:
+
+| Stage | System bar accent |
+|---|---|
+| stock | blue |
+| stock Google `theme.orange` RRO enabled | orange |
+| own overlay, platform-signed, priority 2 | **teal `#00BFA5`** |
+
+Scripted in `tools/install-systemui-overlay.sh`, module `systemui-overlay/`.
+
+**Conclusion.** The part of AAOS the job market asks for most is the part that
+needs least infrastructure. Resource-level System UI customisation — the actual
+day-to-day of OEM HMI work — needs an emulator, `aapt2`, and a public key. No
+Linux, no `repo sync`, no `dex2oat`. The thing that genuinely requires a
+platform build is changing CarSystemUI's *behaviour*, not its appearance.
+
+---
+
 ## Command reference
 
 ```bash

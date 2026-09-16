@@ -7,16 +7,20 @@ car audio and media, Car App Library templates, and surface rendering.
 Runs natively on the car's head unit (no phone required), with a second
 module targeting Android Auto projection.
 
-Two companion documents:
+Companion documents:
 
+- **[AAOS_MASTER.md](AAOS_MASTER.md)** — **start here.** One file, 133
+  questions in learning order, from "what is AAOS" to Soong and tombstones.
+  Plain language, a memory hook on the hard ideas, a command cheat sheet, and
+  an appendix of nine facts that earlier notes got wrong. Supersedes
+  INTERVIEW.md.
 - **[FINDINGS.md](FINDINGS.md)** — the permission model, real VHAL property
   types and units, and several platform behaviours that contradict what the
   documentation implies.
 - **[GUIDE.md](GUIDE.md)** — what each file does, and every command needed to
   build, run and test the app on an emulator.
-- **[INTERVIEW.md](INTERVIEW.md)** — AAOS/Android Auto interview questions,
-  basic to advanced, marked by whether the answer is backed by work in this
-  repo or by reading only.
+- **[INTERVIEW.md](INTERVIEW.md)** — the earlier question list, kept for its
+  JD analysis. Everything in it is now inside AAOS_MASTER.md.
 
 ---
 
@@ -98,10 +102,20 @@ Two modules, same `applicationId`:
 |---|---|---|
 | `automotive` | Native AAOS head unit | `SmartCarAppService` -> `SmartSession` -> `HomeScreen` |
 | `app` | Phone + Android Auto | `MainActivity` + `PhoneCarAppService` |
+| `systemui-overlay` | Car System UI restyling | an RRO — resources only, no code |
 
 ---
 
 ## What it demonstrates
+
+**Platform / OS level**
+- Installed as a privileged system app (`/system/priv-app` + a
+  privapp-permissions allowlist) to reach `signature|privileged` properties
+- Custom vendor VHAL properties added by JSON config — read, write, subscribe
+- Car System UI restyled with a platform-signed RRO, the way an OEM rebrands
+  without forking AOSP
+- Perfetto profiling: found that a hand-pushed priv-app APK never gets dexopt,
+  costing ~40% of main-thread startup work
 
 **Vehicle / platform**
 - `CarPropertyManager` reads with correct types and units, config-gated
@@ -249,7 +263,7 @@ Every command, with a description of what it does and why, is collected in
 - [x] `CarPropertyManager.registerCallback` subscriptions instead of polling
 - [x] Car audio: explicit `AudioAttributes` routing + capability report
       (zones and volume groups are `signature|privileged` — see FINDINGS.md)
-- [ ] Gauges on `GridTemplate` for legibility
+- [x] Gauges on `GridTemplate` for legibility
 - [x] Runtime car permissions requested properly, making speed / fuel /
       battery live on a normal install
 - [x] Privileged system app install for RPM / odometer / VIN, scripted in
@@ -259,6 +273,10 @@ Every command, with a description of what it does and why, is collected in
 - [ ] Custom vendor property implemented in C++ inside the VHAL. The C++ can
       be written anywhere; only *building* it needs Linux, since it depends on
       Soong and AOSP's headers and AOSP does not build on macOS.
+- [x] Perfetto startup profiling; found and fixed a 40% startup regression
+      caused by the privileged install skipping dexopt
+- [x] Car System UI customised with a platform-signed RRO — no AOSP build
+- [ ] Car System UI *behaviour* changes, which do need a platform build
 - [ ] Android Auto verification via DHU
 
 ---
