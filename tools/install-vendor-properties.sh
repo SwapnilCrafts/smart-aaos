@@ -53,22 +53,39 @@ adb shell chmod 644 "$VHAL_CONFIG_DIR/$(basename "$CONFIG")"
 
 step "Restarting the VHAL so it reloads its configs"
 # Only the HAL needs restarting, not the whole device - the config directory is
-# read at service start. CarService picks the new properties up when it
-# reconnects to the HAL.
+# read at service start. CarService then re-queries the HAL's config list when
+# it reconnects, which is NOT instant: until it does, get-property-value
+# answers "not supported by HAL". Hence the retry below rather than one read.
 adb shell setprop ctl.restart "$VHAL_SERVICE"
-sleep 6
 
 step "Confirming the VHAL loaded the file"
-adb logcat -d 2>/dev/null | grep -F "$(basename "$CONFIG")" | tail -2 || \
-    echo "  (no log line; check 'adb logcat -d | grep FakeVehicleHardware')"
+for _ in $(seq 1 15); do
+    if adb logcat -d 2>/dev/null | grep -qF "$(basename "$CONFIG")"; then
+        adb logcat -d 2>/dev/null | grep -F "$(basename "$CONFIG")" | tail -1
+        break
+    fi
+    sleep 2
+done
 
 step "Reading each property back"
+# Retry: CarService may still be reconnecting to the restarted HAL.
+read_prop() {
+    for _ in $(seq 1 15); do
+        out=$(adb shell cmd car_service get-property-value "$1" 2>&1 | head -1)
+        case "$out" in
+            *AVAILABLE*) echo "$out"; return 0 ;;
+        esac
+        sleep 2
+    done
+    echo "$out"
+    return 1
+}
+
 fail=0
 for entry in "${PROPS[@]}"; do
     id=${entry%%:*}
     label=${entry#*:}
-    out=$(adb shell cmd car_service get-property-value "$id" 2>&1 | head -1)
-    if echo "$out" | grep -q 'AVAILABLE'; then
+    if out=$(read_prop "$id"); then
         value=$(echo "$out" | sed 's/.*Value: //; s/}.*//')
         printf '  %-45s = %s\n' "$label" "$value"
     else
