@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Resource names here must match CarSystemUI's names exactly - an overlay
+  replaces a resource by name, so a typo silently overlays nothing.
+
+  These names were not guessed. They came from an overlay that already ships
+  on the device:
+
+    adb pull /product/overlay/googlecarui.theme.orange-com-android-systemui.apk
+    aapt2 dump resources googlecarui.theme.orange-com-android-systemui.apk
+
+  That prints the 163 resources the stock Google theme replaces, which is the
+  reliable way to discover what a target actually exposes. Since Android 10 a
+  target has to declare resources as <overlayable> for a non-preinstalled
+  overlay to touch them, so the existing overlay doubles as the list of what
+  is permitted.
+-->
+<resources>
+    <!-- Main accent. Drives the system bar buttons and highlights. -->
+    <color name="car_primary">#FF00BFA5</color>
+    <color name="car_on_primary">#FF00251F</color>
+
+    <!-- Focus and selection, most visible on the rotary controller. -->
+    <color name="car_control_highlight">#9900BFA5</color>
+    <color name="car_focus_background">#FF00BFA5</color>
+
+    <!-- Secondary accent. -->
+    <color name="car_secondary">#FFFFAB40</color>
+    <color name="car_on_secondary">#FF2A1800</color>
+</resources>

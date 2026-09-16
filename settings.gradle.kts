@@ -22,3 +22,4 @@ dependencyResolutionManagement {
 rootProject.name = "SmartAAOS"
 include(":app")
 include(":automotive")
+include(":systemui-overlay")

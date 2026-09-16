@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A Runtime Resource Overlay (RRO) targeting Car System UI.
+
+  This is how a car maker rebrands the system without forking AOSP: instead of
+  editing CarSystemUI's sources, ship a separate APK that replaces its
+  resources at runtime. The OEM keeps their look across Android upgrades, and
+  the platform code stays upstream.
+
+  Two things make this an overlay rather than an app:
+
+    * the <overlay> element, naming the package whose resources are replaced
+    * no code at all - there is no Activity, no Service, no R class of use.
+      An RRO is resources plus a manifest.
+
+  targetPackage is CarSystemUI, which on AAOS is still called
+  com.android.systemui. isStatic=false means it can be enabled and disabled at
+  runtime with `cmd overlay`, which is what makes it testable without a
+  rebuild.
+
+  priority decides who wins when several overlays touch the same resource;
+  higher priority is applied later. The stock Google theme overlays use
+  priority 1, so this uses 2 to sit on top of them.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.swapnil.smartaaos.systemui.overlay">
+
+    <application android:hasCode="false" />
+
+    <overlay
+        android:targetPackage="com.android.systemui"
+        android:priority="2"
+        android:isStatic="false" />
+</manifest>
